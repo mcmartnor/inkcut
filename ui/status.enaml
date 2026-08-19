@@ -1,0 +1,57 @@
+import enaml
+from enaml.layout.api import hbox, align, spacer
+from enaml.qt.QtWidgets import QApplication
+from enaml.widgets.api import Container, Label, ProgressBar, PushButton
+from inkcut.core.utils import load_icon
+
+
+enamldef StatusStrip(Container):
+    """ Always visible job control strip below the dock area. Holds
+    the only always-reachable Stop/Pause controls (the Live panel that
+    used to carry them is unregistered — see spec T9f)."""
+    attr workbench
+    attr device_plugin = workbench.get_plugin('inkcut.device')
+    attr job_plugin = workbench.get_plugin('inkcut.job')
+    attr ui_plugin = workbench.get_plugin('inkcut.ui')
+    attr device << device_plugin.device
+    attr job << device.job if device else None
+    attr clock << ui_plugin.clock
+    attr active << bool(device and device.busy)
+    padding = (6, 2, 6, 2)
+    constraints = [
+        hbox(lbl_left, lbl_eta, spacer, prog, pb1, pb2),
+        align('v_center', lbl_left, lbl_eta, prog, pb1, pb2),
+        prog.width >= 240,
+    ]
+    Label: lbl_left:
+        attr t << max(0, ((job.info.started+job.info.duration)-clock.now).total_seconds()) if (
+                    active and job and job.info.started and job.info.duration) else 0
+        text << QApplication.translate("ui", "Time left: {}").format(
+            "{} min {} sec".format(int(t/60), int(t%60)) if t else "")
+    Label: lbl_eta:
+        text << QApplication.translate("ui", "ETA: {}").format(
+            (job.info.started+job.info.duration).strftime("%X")
+            if (active and job and job.info.started and job.info.duration) else "")
+    ProgressBar: prog:
+        value << int(job.info.progress) if (active and job) else 0
+        text_visible = True
+    PushButton: pb1:
+        visible << active
+        text = QApplication.translate("device", "Stop")
+        tool_tip = QApplication.translate("device", "Stop the current job")
+        icon = load_icon('control_stop')
+        clicked :: job.info.cancelled = True
+    PushButton: pb2:
+        text << QApplication.translate("device", "Resume") if (job and job.info.paused and not job.info.cancelled) else (
+            QApplication.translate("device", "Pause") if active else QApplication.translate("device", "Send to device")
+        )
+        icon << load_icon('control_play' if ((job and job.info.paused)
+                            or not active)
+                          else 'control_pause')
+        clicked ::
+            if device and device.busy:
+                job.info.paused = not job.info.paused
+            elif job_plugin and job_plugin.job.document:
+                core = workbench.get_plugin("enaml.workbench.core")
+                core.invoke_command('inkcut.device.submit',
+                                    parameters={'job': job_plugin.job})

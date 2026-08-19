@@ -82,3 +82,7 @@ class InkcutWorkspace(Workspace):
         #     print(e)
         area = plugin.create_new_area()
         area.set_parent(self.content)
+        with enaml.imports():
+            from inkcut.ui.status import StatusStrip
+        strip = StatusStrip(workbench=self.workbench)
+        strip.set_parent(self.content)
