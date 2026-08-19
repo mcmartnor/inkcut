@@ -55,6 +55,11 @@ class JobPlugin(Plugin):
     # Whether or not to auto-detect DPI settings for Inkscape SVG files.
     dpi_auto_detect_inkscape = Bool(True).tag(config=True)
 
+    #: Global preference: skip the job approval dialog entirely.
+    #: Set from the "Don't ask again" checkbox. Distinct from the
+    #: per-job JobInfo.auto_approve flag (used by calibration cuts).
+    auto_approve = Bool().tag(config=True)
+
     #: Bumped on every open_document call. A background conversion holds
     #: the value it started with and drops its result if another open
     #: happened meanwhile, so a slow conversion can never replace a
@@ -102,6 +107,9 @@ class JobPlugin(Plugin):
         to either 'approved' or 'cancelled'.
 
         """
+        if self.auto_approve:
+            job.info.status = 'approved'
+            return
         ui = self.workbench.get_plugin("enaml.workbench.ui")
         with enaml.imports():
             from .dialogs import JobApprovalDialog

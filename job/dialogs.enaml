@@ -88,7 +88,6 @@ enamldef JobApprovalDialog(Dialog): dialog:
             ]
             CheckBox: cbx:
                 text = QApplication.translate("job", "Don't ask again")
-                checked := job.info.auto_approve
             PushButton: btn_no:
                 text = QApplication.translate("job", "Cancel")
                 clicked ::
@@ -97,5 +96,7 @@ enamldef JobApprovalDialog(Dialog): dialog:
             PushButton: btn_yes:
                 text = QApplication.translate("job", "Start")
                 clicked ::
+                    if cbx.checked:
+                        plugin.auto_approve = True
                     job.info.status = 'approved'
                     dialog.close()
