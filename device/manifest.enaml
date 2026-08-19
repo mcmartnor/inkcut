@@ -193,6 +193,6 @@ enamldef DeviceManifest(PluginManifest):
             path = '/device/send'
             label = QApplication.translate("device", "Send to device")
             shortcut = 'Ctrl+P'
-            after = 'reset_origin'
+            before = 'setup'
             command = 'inkcut.device.submit'
             icon = menu_icon('chart_curve_go')
