@@ -1,0 +1,127 @@
+# -*- coding: utf-8 -*-
+"""
+Copyright (c) 2018, Jairus Martin.
+
+Distributed under the terms of the GPL v3 License.
+
+The full license is in the file LICENSE, distributed with this software.
+
+Created on Dec 14, 2018
+
+@author: jrm
+"""
+from enaml.qt.QtWidgets import QApplication
+from enaml.widgets.api import Form, Container, Label, CheckBox, SpinBox
+from enamlx.widgets.api import DoubleSpinBox
+
+from inkcut.core.utils import from_unit, to_unit
+
+
+enamldef OvercutConfigView(Container):
+    attr model
+    padding = 0
+    Form:
+        Label:
+            text = QApplication.translate("filters", "Overcut")
+        DoubleSpinBox:
+            tool_tip = QApplication.translate("filters", "Set to 0 to disable")
+            suffix << " "+model.overcut_units
+            value << to_unit(model.overcut, model.overcut_units)
+            value ::
+                model.overcut = from_unit(change['value'], model.overcut_units)
+
+
+enamldef BladeOffsetConfigView(Container):
+    attr model
+    padding = 0
+    Form:
+        Label:
+            text = QApplication.translate("filters", "Blade Offset")
+        DoubleSpinBox:
+            tool_tip = QApplication.translate("filters", "Set to 0 to disable")
+            minimum = 0.0
+            suffix << " "+model.offset_units
+            value << to_unit(model.offset, model.offset_units)
+            value ::
+                model.offset = from_unit(change['value'], model.offset_units)
+        Label:
+            text = QApplication.translate("filters", "Cutoff angle")
+        DoubleSpinBox:
+            tool_tip = QApplication.translate("filters", "Angle at minimum angle that must be met to apply compensation")
+            minimum = 0.0
+            maximum = 90.0
+            value := model.cutoff
+
+enamldef MinLineConfigView(Container):
+    attr model
+    padding = 0
+    Form:
+        Label:
+            text = QApplication.translate("filters", "Min jump")
+        DoubleSpinBox:
+            tool_tip = QApplication.translate("filters", "Ignore jumps shorter than this. Set to 0 to disable")
+            minimum = 0.0
+            decimals = 3
+            single_step = 0.01
+            suffix << " "+model.units
+            value << to_unit(model.min_jump, model.units)
+            value ::
+                model.min_jump = from_unit(change['value'], model.units)
+        Label:
+            text = QApplication.translate("filters", "Min path length")
+        DoubleSpinBox:
+            tool_tip = QApplication.translate("filters", "Ignore short paths. Set to 0 to disable")
+            minimum = 0.0
+            decimals = 3
+            single_step = 0.01
+            suffix << " "+model.units
+            value << to_unit(model.min_path, model.units)
+            value ::
+                model.min_path = from_unit(change['value'], model.units)
+        Label:
+            text = QApplication.translate("filters", "Min sideways shift")
+        DoubleSpinBox:
+            tool_tip = QApplication.translate("filters", "Ignore short segments going sideways or backward followed by path which continues in the direction before shift. Set to 0 to disable")
+            minimum = 0.0
+            decimals = 3
+            single_step = 0.001
+            suffix << " "+model.units
+            value << to_unit(model.min_shift, model.units)
+            value ::
+                model.min_shift = from_unit(change['value'], model.units)
+        Label:
+            text = QApplication.translate("filters", "Min edge")
+        DoubleSpinBox:
+            tool_tip = QApplication.translate("filters", "Ignore short lines. Useful for simplifying excesively subdivied paths. Set to 0 to disable")
+            minimum = 0.0
+            decimals = 3
+            single_step = 0.1
+            suffix << " "+model.units
+            value << to_unit(model.min_edge, model.units)
+            value ::
+                model.min_edge = from_unit(change['value'], model.units)
+
+enamldef RepeatConfigView(Container):
+    attr model
+    attr job_plugin << plugin.workbench.get_plugin('inkcut.job')
+    padding = 0
+    Form:
+        Label:
+            text = QApplication.translate("filters", "Repeat")
+        SpinBox:
+            tool_tip = QApplication.translate("filters", "Repeat each line specified amount of times. Set to 1 to disable")
+            minimum = 1
+            maximum = 50
+            value := model.steps
+        Label:
+            text = QApplication.translate("filters", "Max closed loop gap")
+        DoubleSpinBox:
+            tool_tip = QApplication.translate("filters", "When distance between start and end of shape is less consider it closed shape.")
+            minimum = 0.0
+            decimals = 3
+            single_step = 0.01
+            attr units << job_plugin.units
+            suffix << " "+job_plugin.units
+            value << to_unit(model.closed_loop_distance, job_plugin.units)
+            value ::
+                model.closed_loop_distance = from_unit(change['value'], job_plugin.units)

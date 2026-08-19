@@ -1,0 +1,708 @@
+# -*- coding: utf-8 -*-
+"""
+Copyright (c) 2017-2020, the Inkcut team.
+
+Distributed under the terms of the GPL v3 License.
+
+The full license is in the file LICENSE, distributed with this software.
+
+Created on Jul 14, 2015
+
+@author: jrm
+"""
+import os
+from datetime import datetime
+from enaml.image import Image
+from enaml.widgets.api import (
+    Container, Label, ImageView, SpinBox, CheckBox, PushButton, RadioButton,
+    Form, ObjectCombo, Menu, Action, GroupBox
+)
+from enaml.core.api import Looper, Conditional
+from enaml.layout.api import hbox, vbox, spacer, align
+from enaml.qt.QtWidgets import QApplication
+from enamlx.widgets.api import (
+    DoubleSpinBox, TableView, TableViewRow, TableViewItem
+)
+
+from inkcut.core.api import DockItem
+from inkcut.core.utils import (
+    load_icon, load_image, from_unit, to_unit, color_icon
+)
+from inkcut.job.plugin import Job
+
+
+def try_update_setting(plugin, view, field, index, change, title="Does not fit"):
+    """ Try to update the field with the given index and change. If it fails with a JobError,
+    revert
+
+    """
+    try:
+        field[index] = from_unit(change['value'], plugin.units)
+    except Exception as e:
+        plugin.workbench.message_critical(title=title, message=str(e))
+        field[index] = from_unit(change['oldvalue'], plugin.units)
+        view.value = change['oldvalue']
+
+
+enamldef GraphicDockItem(DockItem):
+    attr plugin
+    attr job: Job << plugin.job
+    icon = load_icon('vector')
+    name = 'graphic-item'
+    title = QApplication.translate("job", "Graphic")
+    Container:
+        Container:
+            padding = 0
+            Label:
+                text = QApplication.translate("job", "Graphic Size")
+            Form:
+                padding = 0
+                ImageView:
+                    image = load_image('text_letterspacing')
+                DoubleSpinBox:
+                    value << to_unit(job.size[0], plugin.units)
+                    value ::
+                        #print("callback",change)
+                        v = to_unit(job.size[0], plugin.units)
+                        changed = v != change['value']
+                        if changed and change['oldvalue']>0 and change['value']>0:
+                            s = job.scale[0] * change['value']/change['oldvalue']
+                            oldvalue = job.scale
+                            try:
+                                if job.lock_scale:
+                                    job.scale = [s,s]
+                                else:
+                                    job.scale[0] = s
+                            except Exception as e:
+                               plugin.workbench.message_critical(title="Does not fit", message=str(e))
+                               job.scale = oldvalue
+                               self.value = change['oldvalue']
+                    suffix << " "+plugin.units
+                    minimum = 0.00001
+                    maximum = 99999.9
+                ImageView:
+                    image = load_image('text_linespacing')
+                DoubleSpinBox:
+                    value << to_unit(job.size[1], plugin.units)
+                    value ::
+                        #print("callback",change)
+                        v = to_unit(job.size[1], plugin.units)
+                        changed = v != change['value']
+                        if changed and change['oldvalue']>0 and change['value']>0:
+                            s = job.scale[1] * change['value']/change['oldvalue']
+                            oldvalue = job.scale
+                            try:
+                                if job.lock_scale:
+                                    job.scale = [s,s]
+                                else:
+                                    job.scale[1] = s
+                            except Exception as e:
+                               plugin.workbench.message_critical(title="Does not fit", message=str(e))
+                               job.scale = oldvalue
+                               self.value = change['oldvalue']
+                    suffix << " "+plugin.units
+                    minimum = 0.00001
+                    maximum = 99999.9
+                ImageView:
+                    image << load_image(job.lock_scale and 'text_kerning' or 'text_letterspacing')
+                DoubleSpinBox:
+                    value << 100*job.scale[0]
+                    value ::
+                        s = change['value']/100.0
+                        oldvalue = job.scale
+                        try:
+                            if job.lock_scale:
+                                job.scale = [s,s]
+                            else:
+                                job.scale[0] = s
+                        except Exception as e:
+                           plugin.workbench.message_critical(title="Does not fit", message=str(e))
+                           job.scale = oldvalue
+                           self.value = change['oldvalue']
+                    suffix = ' %'
+                    minimum = 0.00001
+                    maximum = 99999.9
+                ImageView:
+                    visible << not job.lock_scale
+                    image = load_image('text_linespacing')
+                DoubleSpinBox:
+                    visible << not job.lock_scale
+                    value << 100*job.scale[1]
+                    value ::
+                        s = change['value']/100.0
+                        oldvalue = job.scale
+                        try:
+                            if job.lock_scale:
+                                job.scale = [s,s]
+                            else:
+                                job.scale[1] = s
+                        except Exception as e:
+                           plugin.workbench.message_critical(title="Does not fit", message=str(e))
+                           job.scale = oldvalue
+                           self.value = change['oldvalue']
+                    suffix = ' %'
+                    minimum = 0.00001
+                    maximum = 99999.9
+            CheckBox:
+                text = QApplication.translate("job", "Lock aspect ratio")
+                checked := job.lock_scale
+            Conditional:
+                #: Whole layout (all copies incl. spacing) — the per-copy
+                #: spinboxes above don't change when copies are stepped up.
+                #: Editable: typing a total scales the graphic by the
+                #: ratio; spacing is fixed and stacking may reflow, so the
+                #: field re-displays the actual resulting total after the
+                #: layout recomputes.
+                condition << job.copies > 1
+                Label:
+                    text = QApplication.translate("job", "Total Size")
+                Form:
+                    padding = 0
+                    ImageView:
+                        image = load_image('text_letterspacing')
+                    DoubleSpinBox:
+                        value << to_unit(job.final_size[0], plugin.units)
+                        value ::
+                            #: The Qt spinbox rounds to `decimals`; a
+                            #: programmatic update (e.g. copies changed)
+                            #: comes back rounded, and Qt (half-up) and
+                            #: Python (banker's) can disagree by one ulp
+                            #: at halves — so treat anything within one
+                            #: display quantum as "unchanged" or the
+                            #: handler mistakes the echo for the user
+                            #: typing a new total and scales the job.
+                            v = to_unit(job.final_size[0], plugin.units)
+                            changed = abs(v - change['value']) > 1.01 * 10 ** (-self.decimals)
+                            if changed and change['oldvalue'] > 0 and change['value'] > 0:
+                                k = job.scale[0] * change['value']/change['oldvalue']
+                                #: copy: job.scale[0] = k mutates the
+                                #: same list oldvalue would point at
+                                oldvalue = job.scale[:]
+                                try:
+                                    if job.lock_scale:
+                                        job.scale = [k, k]
+                                    else:
+                                        job.scale[0] = k
+                                except Exception as e:
+                                    plugin.workbench.message_critical(title="Does not fit", message=str(e))
+                                    job.scale = oldvalue
+                                    self.value = change['oldvalue']
+                        suffix << " "+plugin.units
+                        minimum = 0.00001
+                        maximum = 99999.9
+                    ImageView:
+                        image = load_image('text_linespacing')
+                    DoubleSpinBox:
+                        value << to_unit(job.final_size[1], plugin.units)
+                        value ::
+                            #: See width field: one display quantum of
+                            #: tolerance to ignore programmatic echoes
+                            v = to_unit(job.final_size[1], plugin.units)
+                            changed = abs(v - change['value']) > 1.01 * 10 ** (-self.decimals)
+                            if changed and change['oldvalue'] > 0 and change['value'] > 0:
+                                k = job.scale[1] * change['value']/change['oldvalue']
+                                #: copy: see width field
+                                oldvalue = job.scale[:]
+                                try:
+                                    if job.lock_scale:
+                                        job.scale = [k, k]
+                                    else:
+                                        job.scale[1] = k
+                                except Exception as e:
+                                    plugin.workbench.message_critical(title="Does not fit", message=str(e))
+                                    job.scale = oldvalue
+                                    self.value = change['oldvalue']
+                        suffix << " "+plugin.units
+                        minimum = 0.00001
+                        maximum = 99999.9
+            #CheckBox:
+            #    text = 'Scale to fit'
+            #    checked := job.auto_scale
+        Container:
+            constraints = [
+                vbox(hdr,
+                     form,
+                     hbox(pb1,pb2,cb1,spacer)),
+                align('v_center',pb1,pb2,cb1)
+            ]
+            padding = 0
+            Label: hdr:
+                text = QApplication.translate("job", "Graphic Copies")
+            Form: form:
+                padding = 0
+                ImageView:
+                    image = load_image('shape_copy')
+                SpinBox:
+                    value << job.copies
+                    value ::
+                        oldvalue = job.copies
+                        try:
+                            job.copies = change['value']
+                        except Exception as e:
+                           plugin.workbench.message_critical(title="Does not fit", message=str(e))
+                           job.copies = oldvalue
+                           self.value = change['oldvalue']
+                    minimum = 1
+                    maximum = 99999
+                    suffix << job.auto_copies and "   (minimum set to %s)"%job._desired_copies or ""
+            PushButton: pb1:
+                icon = load_icon('shape_square_add')
+                clicked ::
+                    oldvalue = job.copies
+                    try:
+                        job.add_stack()
+                    except Exception as e:
+                       plugin.workbench.message_critical(title="Does not fit", message=str(e))
+                       job.copies = oldvalue
+                       self.value = change['oldvalue']
+            PushButton: pb2:
+                icon = load_icon('shape_square_delete')
+                clicked :: job.remove_stack()
+            CheckBox: cb1:
+                text = QApplication.translate("job", "Fill to save space")
+                checked := job.auto_copies
+
+        Container:
+            padding = 0
+            Label:
+                text = QApplication.translate("job", "Graphic Rotation")
+            Form:
+                padding = 0
+                ImageView:
+                    image = load_image('shape_rotate_clockwise')
+                DoubleSpinBox:
+                    value << job.rotation
+                    value ::
+                        oldvalue = job.rotation
+                        try:
+                            job.rotation = change['value']
+                        except Exception as e:
+                            plugin.workbench.message_critical(title="Does not fit", message=str(e))
+                            job.rotation = oldvalue
+                            self.value = change['oldvalue']
+                    suffix = " °"
+                    maximum = 180
+                    minimum = -180
+                    wrapping = True
+                    single_step = 15
+            Container:
+                #: Illustrator-style quick rotate; wraps into [-180, 180]
+                padding = 0
+                constraints = [hbox(rl, rr, r180, spacer)]
+                PushButton: rl:
+                    text = '90° ' + QApplication.translate("job", "left")
+                    icon = load_icon('shape_rotate_anticlockwise')
+                    clicked ::
+                        oldvalue = job.rotation
+                        try:
+                            job.rotation = ((job.rotation + 90 + 180) % 360) - 180
+                        except Exception as e:
+                            plugin.workbench.message_critical(title="Does not fit", message=str(e))
+                            job.rotation = oldvalue
+                PushButton: rr:
+                    text = '90° ' + QApplication.translate("job", "right")
+                    icon = load_icon('shape_rotate_clockwise')
+                    clicked ::
+                        oldvalue = job.rotation
+                        try:
+                            job.rotation = ((job.rotation - 90 + 180) % 360) - 180
+                        except Exception as e:
+                            plugin.workbench.message_critical(title="Does not fit", message=str(e))
+                            job.rotation = oldvalue
+                PushButton: r180:
+                    text = '180°'
+                    clicked ::
+                        oldvalue = job.rotation
+                        try:
+                            job.rotation = ((job.rotation + 180 + 180) % 360) - 180
+                        except Exception as e:
+                            plugin.workbench.message_critical(title="Does not fit", message=str(e))
+                            job.rotation = oldvalue
+            CheckBox:
+                text = QApplication.translate("job", "Rotate to save space")
+                checked := job.auto_rotate
+        Container:
+            padding = 0
+
+            Label:
+                text = QApplication.translate("job", "Graphic Mirroring")
+            CheckBox:
+                text = QApplication.translate("job", "Mirror about x-axis")
+                icon = load_icon('shape_flip_vertical')
+                checked := job.mirror[1]
+            CheckBox:
+                text = QApplication.translate("job", "Mirror about y-axis")
+                icon = load_icon('shape_flip_horizontal')
+                checked := job.mirror[0]
+
+
+enamldef WeedlinesDockItem(DockItem):
+    attr plugin
+    attr job: Job << plugin.job
+    title = QApplication.translate("job", "Weedlines")
+    name = 'weedlines-item'
+    icon = load_icon('shape_group')
+    Container:
+        Container:
+            padding = 0
+            Label:
+                text = QApplication.translate("job", "Graphic Spacing")
+            Form:
+                padding = 0
+                Label:
+                    text = QApplication.translate("job", "Row")
+                DoubleSpinBox:
+                    value << to_unit(job.copy_spacing[0], plugin.units)
+                    value :: try_update_setting(plugin, self, job.copy_spacing, 0, change)
+                    suffix << " "+plugin.units
+                    maximum = 99999.9
+                    single_step = 0.1
+                Label:
+                    text = QApplication.translate("job", "Col")
+                DoubleSpinBox:
+                    value << to_unit(job.copy_spacing[1], plugin.units)
+                    value :: try_update_setting(plugin, self, job.copy_spacing, 1, change)
+                    suffix << " "+plugin.units
+                    maximum = 99999.9
+                    single_step = 0.1
+
+        Container:
+            padding = 0
+
+            Label:
+                text = QApplication.translate("job", "Plotting Order")
+            Form:
+                padding = 0
+                ImageView:
+                    image = load_image('chart_line')
+                ObjectCombo:
+                    items = list(job.__class__.order.items)
+                    to_string = lambda it: QApplication.translate("job", it)
+                    selected := job.order
+                    hug_width = 'ignore' # Expanding
+        Container:
+            padding = 0
+
+            Label:
+                text = QApplication.translate("job", "Plot Weedlines")
+            CheckBox:
+                text = QApplication.translate("job", "Add weedline to plot")
+                icon = load_icon('shape_group')
+                checked := job.plot_weedline
+            CheckBox:
+                text = QApplication.translate("job", "Add weedline to copies")
+                icon = load_icon('shape_ungroup')
+                checked := job.copy_weedline
+        Container:
+            padding = 0
+
+            Label:
+                text = QApplication.translate("job", "Weedline Padding")
+            Form:
+                padding = 0
+                ImageView:
+                    image = load_image('text_padding_left')
+                DoubleSpinBox:
+                    value << to_unit(job.copy_weedline_padding[0], plugin.units)
+                    value :: try_update_setting(plugin, self, job.copy_weedline_padding, 0, change)
+                    suffix << " "+plugin.units
+                    maximum = 99999.9
+                    single_step = 0.1
+                ImageView:
+                    image = load_image('text_padding_top')
+                DoubleSpinBox:
+                    value << to_unit(job.copy_weedline_padding[1], plugin.units)
+                    value :: try_update_setting(plugin, self, job.copy_weedline_padding, 1, change)
+                    suffix << " "+plugin.units
+                    maximum = 99999.9
+                    single_step = 0.1
+                ImageView:
+                    image = load_image('text_padding_right')
+                DoubleSpinBox:
+                    value << to_unit(job.copy_weedline_padding[2], plugin.units)
+                    value :: try_update_setting(plugin, self, job.copy_weedline_padding, 2, change)
+                    suffix << " "+plugin.units
+                    maximum = 99999.9
+                    single_step = 0.1
+                ImageView:
+                    image = load_image('text_padding_bottom')
+                DoubleSpinBox:
+                    value << to_unit(job.copy_weedline_padding[3], plugin.units)
+                    value :: try_update_setting(plugin, self, job.copy_weedline_padding, 3, change)
+                    suffix << " "+plugin.units
+                    maximum = 99999.9
+                    single_step = 0.1
+
+
+enamldef LayersDockItem(DockItem):
+    attr plugin
+    attr job: Job << plugin.job
+    attr filters << job.svg_filters if job else []
+
+    title = QApplication.translate("job", "Layers")
+    name = 'layers-item'
+    icon = load_icon('layers')
+    Container:
+        Container:
+            padding = 0
+            Label:
+                text = QApplication.translate("job", "Layers")
+            Looper:
+                iterable << [f for f in filters if f.type == 'layer']
+                CheckBox: cb:
+                    attr layer = loop_item
+                    text = layer.name
+                    checked := layer.enabled
+                    toggled :: job.update_document({'name': 'layer'})
+                #Conditional:
+                    #condition << cb.checked
+                    #Form:
+                        #attr layer = loop_item
+                        #padding = 0
+                        #Label:
+                            #text= "X Offset"
+                        #DoubleSpinBox:
+                            #value << to_unit(layer.offset_x, plugin.units)
+                            #value :: layer.offset_x = from_unit(value, plugin.units)
+                            #suffix << " "+plugin.units
+                            #minimum = -9999
+                            #maximum = 9999
+                            #single_step = 10
+                        #Label:
+                            #text = "Y Offset"
+                        #DoubleSpinBox:
+                            #value << to_unit(layer.offset_y, plugin.units)
+                            #value :: layer.offset_x = from_unit(value, plugin.units)
+                            #suffix << " "+plugin.units
+                            #minimum = -9999
+                            #maximum = 9999
+                            #single_step = 10
+        Container:
+            padding = 0
+            Label:
+                text = QApplication.translate("job", "Fill Colors")
+            Form:
+                padding = 0
+                Looper:
+                    iterable << [f for f in filters if f.type == 'fill-color']
+                    CheckBox:
+                        attr color_filter = loop_item
+                        text = color_filter.name
+                        icon << color_icon(color_filter.color)
+                        checked := color_filter.enabled
+                        toggled :: job.update_document({'name': 'color'})
+
+        Container:
+            padding = 0
+            Label:
+                text = QApplication.translate("job", "Stroke Colors")
+            Form:
+                padding = 0
+                Looper:
+                    iterable << [f for f in filters if f.type == 'stroke-color']
+                    CheckBox:
+                        attr color_filter = loop_item
+                        text = color_filter.name
+                        icon << color_icon(color_filter.color)
+                        checked := color_filter.enabled
+                        toggled :: job.update_document({'name': 'color'})
+
+
+enamldef MaterialDockItem(DockItem):
+    attr plugin
+    attr job: Job << plugin.job
+    title = QApplication.translate("job", "Material")
+    name = "material-item"
+    icon = load_icon('note')
+    Container:
+        Container:
+            padding = 0
+
+            Label:
+                text = QApplication.translate("job", "Plot Area")
+            Form:
+                padding = 0
+                ImageView:
+                    image = load_image('shape_square_width')
+                DoubleSpinBox:
+                    value << to_unit(job.material.size[0], plugin.units)
+                    value :: try_update_setting(plugin, self, job.material.size, 0, change)
+                    suffix << " "+plugin.units
+                    maximum = 99999.9
+                    #maximum << to_unit(job.material.size[0], plugin.units)
+                    #single_step = 0.1
+                ImageView:
+                    image = load_image('shape_square_height')
+                DoubleSpinBox:
+                    value << to_unit(job.material.size[1], plugin.units)
+                    value :: try_update_setting(plugin, self, job.material.size, 1, change)
+                    suffix << " "+plugin.units
+                    maximum = 99999.9
+                    #maximum << to_unit(job.material.size[1], plugin.units)
+                    #single_step = 0.1
+#                Label:
+#                    text = ""
+#                PushButton:
+#                    text = "Read from device"
+#                    tool_tip = "Get the material size by querying the device."
+#                    clicked ::
+#                        try:
+#                            job.material.size = plugin.device.querySize()
+#                        except NotImplementedError:
+#                            pass
+
+        Container:
+            padding = 0
+
+            Label:
+                text = QApplication.translate("job", "Plot Margins")
+            Form:
+                padding = 0
+                ImageView:
+                    image = load_image('text_padding_left')
+                DoubleSpinBox:
+                    value << to_unit(job.material.padding[0], plugin.units)
+                    value :: try_update_setting(plugin, self, job.material.padding, 0, change)
+                    suffix << " "+plugin.units
+                    maximum = 99999.9
+                    single_step = 0.1
+                ImageView:
+                    image = load_image('text_padding_top')
+                DoubleSpinBox:
+                    value << to_unit(job.material.padding[1], plugin.units)
+                    value :: try_update_setting(plugin, self, job.material.padding, 1, change)
+                    suffix << " "+plugin.units
+                    maximum = 99999.9
+                    single_step = 0.1
+                ImageView:
+                    image = load_image('text_padding_right')
+                DoubleSpinBox:
+                    value << to_unit(job.material.padding[2], plugin.units)
+                    value :: try_update_setting(plugin, self, job.material.padding, 2, change)
+                    suffix << " "+plugin.units
+                    maximum = 99999.9
+                    single_step = 0.1
+                ImageView:
+                    image = load_image('text_padding_bottom')
+                DoubleSpinBox:
+                    value << to_unit(job.material.padding[3], plugin.units)
+                    value :: try_update_setting(plugin, self, job.material.padding, 3, change)
+                    suffix << " "+plugin.units
+                    maximum = 99999.9
+                    single_step = 0.1
+        Container:
+            padding = 0
+
+            Label:
+                text = QApplication.translate("job", "Plot Alignment")
+            CheckBox:
+                text = QApplication.translate("job", 'Shift to origin')
+                icon = load_icon('shape_align_left')
+                checked := job.auto_shift
+            CheckBox:
+                text = QApplication.translate("job", 'Align center horizontally')
+                icon = load_icon('shape_align_center')
+                checked := job.align_center[0]
+            CheckBox:
+                text = QApplication.translate("job", 'Align center vertically')
+                icon = load_icon('shape_align_middle')
+                checked := job.align_center[1]
+            CheckBox:
+                text = QApplication.translate("device", "Clip to plot area")
+                icon = load_icon('shape_square_width')
+                checked := job.clip_to_plot_area
+
+        Container:
+            padding = 0
+            constraints = [
+                vbox(lbl,
+                     rb1,
+                     hbox(rb2,dsb)),
+                align('v_center',rb2,dsb)
+            ]
+            Label: lbl:
+                text = QApplication.translate("job", "Plot Feeding")
+            RadioButton: rb1:
+                text = QApplication.translate("job", "Return to origin")
+                checked << not job.feed_to_end
+            RadioButton: rb2:
+                text = QApplication.translate("job", "Feed after")
+                checked := job.feed_to_end
+            DoubleSpinBox: dsb:
+                value << to_unit(job.feed_after, plugin.units)
+                value :: job.feed_after = from_unit(change['value'],plugin.units)
+                suffix << " "+plugin.units
+                maximum = 99999.9
+                single_step = 0.1
+
+
+enamldef JobHistoryDockItem(DockItem):
+    attr plugin
+    title = QApplication.translate("job", "Jobs")
+    name = 'job-history-item'
+    icon = load_icon('application_view_list')
+    Container:
+        padding = 0
+        TableView: table:
+            horizontal_headers = ['Date', 'Document', 'Count', 'Duration', 'Status', 'Copies', 'Rotation', 'Size', 'Material' ]
+            horizontal_stretch = True
+            resize_mode = 'resize_to_contents'
+            items << plugin.jobs
+            Looper:
+                iterable << reversed(sorted(plugin.jobs, key=lambda j: j.info.created or datetime(1970, 1, 1)))
+                TableViewRow:
+                    attr job << loop_item
+                    TableViewItem:
+                        text << str(job.info.created.strftime('%c')) if job and job.info.created else ""
+                    TableViewItem:
+                        text << str(job) if job else ""
+                        tool_tip = str(job) if job else ""
+                    TableViewItem:
+                        text << str(job.info.count) if job else "0"
+                    TableViewItem:
+                         attr duration << job.info.duration.total_seconds() if job and job.info.duration else 0
+                         text << "{} min {} sec".format(
+                                int(duration/60),
+                                int(duration%60)
+                                ) if (duration) else ""
+                    TableViewItem:
+                        text << str(job.info.status) if job else ""
+                    TableViewItem:
+                        text << str(job.copies) if job else ""
+                    TableViewItem:
+                        text << "{} °".format(job.rotation) if job else ""
+                    TableViewItem:
+                        text << "{} {} x {} {}".format(
+                                round(to_unit(job.size[0], plugin.units), 2), plugin.units,
+                                round(to_unit(job.size[1], plugin.units), 2), plugin.units,
+                            ) if job and job.model else ""
+                    TableViewItem:
+                        text << "{} {} x {} {}".format(
+                                round(to_unit(job.material.size[0], plugin.units), 2), plugin.units,
+                                round(to_unit(job.material.size[1], plugin.units), 2), plugin.units,
+                            ) if job and job.model else ""
+                    Menu:
+                        Action:
+                            text = QApplication.translate("job", "Open job")
+                            icon = load_icon("control_equalizer_blue")
+                            triggered :: plugin.job = job
+                        Action:
+                            separator = True
+                        Action:
+                            text = QApplication.translate("job", "Send job to device")
+                            icon = load_icon("control_repeat_blue")
+                            triggered ::
+                                core = plugin.workbench.get_plugin("enaml.workbench.core")
+                                core.invoke_command('inkcut.device.submit', parameters={'job': job})
+                        Action:
+                            separator = True
+                        Action:
+                            text = QApplication.translate("job", "Remove from list")
+                            icon = load_icon("bin")
+                            triggered ::
+                                if job in plugin.jobs:
+                                    jobs = plugin.jobs[:]
+                                    jobs.remove(job)
+                                    plugin.jobs = jobs
+
+

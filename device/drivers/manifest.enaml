@@ -1,0 +1,338 @@
+"""
+Created on Jul 25, 2015
+
+@author: jrm
+"""
+from enaml.core.api import Include
+from enaml.workbench.plugin_manifest import PluginManifest
+from enaml.workbench.api import Extension
+from inkcut.device.extensions import DeviceDriver
+
+
+def load_drivers():
+    """ At some point in time load these from a server """
+
+    return []
+
+
+enamldef DriversManifest(PluginManifest):
+    """ Device drivers manifest.
+
+    A "DeviceDriver" is simply a declaration of the device name, dimensions,
+    and supported protocols and connection types.
+
+    To fully customize how the "Driver" works, define a factory that creates
+    a Device subclass implementing the desired behavior.A config_view can
+    also be set to provide a customized settings UI for the device.
+
+    """
+    id = 'inkcut.device.drivers'
+
+    Extension:
+        id = 'protocols'
+        point = 'inkcut.device.driver'
+
+        DeviceDriver:
+            manufacturer = 'Inkcut'
+            model = 'Generic Driver'
+            custom = True
+
+        DeviceDriver:
+            manufacturer = 'Vinylmark'
+            model = 'Raspberry PI CNC'
+            width = '60cm'
+            length = '60cm'
+
+        DeviceDriver:
+            manufacturer = 'Roland'
+            model = 'PNC-900'
+            width = '12in'
+            protocols = ['camm-gl1']
+
+        DeviceDriver:
+            manufacturer = 'Roland'
+            model = 'PNC-950'
+            width = '24in'
+            protocols = ['camm-gl1']			
+			
+        DeviceDriver:
+            manufacturer = 'Roland'
+            model = 'PNC-1000'
+            width = '46.8cm'
+            protocols = ['camm-gl1']
+
+        DeviceDriver:
+            manufacturer = 'Roland'
+            model = 'Stika SV-15'
+            width = '15in'
+            protocols = ['hpgl']
+            default_config = {
+              'swap_xy': True
+            }
+
+        DeviceDriver:
+            manufacturer = 'Roland'
+            model = 'Stika SV-12'
+            width = '12in'
+            protocols = ['hpgl']
+            default_config = {
+              'swap_xy': True
+            }
+
+        DeviceDriver:
+            manufacturer = 'Roland'
+            model = 'Stika SV-8'
+            width = '8in'
+            protocols = ['hpgl']
+            default_config = {
+              'swap_xy': True
+            }
+
+        DeviceDriver:
+            manufacturer = 'ANAgraph'
+            model = 'AE-70e'
+            width = '76cm'
+            protocols = ['hpgl', 'dmpl']
+            connections = ['serial', 'printer']
+
+        DeviceDriver:
+            #: Anhui Anyu D-type mainboard sold under many brands
+            #: (USB 0483:5750 "CH554_CDC"). Native language is DMPL at
+            #: 0.025mm/step; the HPGL mode is unreliable on this firmware.
+            manufacturer = 'VEVOR'
+            model = 'KH-870 (Anhui Anyu, USB)'
+            #: 87cm is the feed width; cutting width is 78cm (VEVOR manual)
+            width = '78cm'
+            protocols = ['dmpl', 'hpgl']
+            connections = ['usb', 'serial', 'printer']
+            default_config = {
+                #: This firmware takes the feed coordinate first and
+                #: mirrors the carriage: without these a fresh profile
+                #: drives the wrong physical axes (verified on hardware)
+                'mirror_x': True,
+                'protocol': {
+                    'dmpl': {'mode': 3, 'swap_axes': True},
+                },
+                'filters': {
+                    #: 1mm overcut (px @90dpi): releases closed shapes cleanly
+                    'overcut': {'overcut': 3.5433070866, 'overcut_units': 'mm'},
+                },
+            }
+
+        DeviceDriver:
+            manufacturer = 'VEVOR'
+            model = 'KH-720 (Anhui Anyu, USB)'
+            #: 72cm is the feed width; cutting width is 63cm (VEVOR manual)
+            width = '63cm'
+            protocols = ['dmpl', 'hpgl']
+            connections = ['usb', 'serial', 'printer']
+            default_config = {
+                #: Same feed-first firmware family as the KH-870
+                'mirror_x': True,
+                'protocol': {
+                    'dmpl': {'mode': 3, 'swap_axes': True},
+                },
+                'filters': {
+                    #: 1mm overcut (px @90dpi): releases closed shapes cleanly
+                    'overcut': {'overcut': 3.5433070866, 'overcut_units': 'mm'},
+                },
+            }
+
+        DeviceDriver:
+            manufacturer = 'KNK'
+            model = 'ACS Eagle/KNK Maxx'
+            width = '28in'
+
+        DeviceDriver:
+            manufacturer = 'US Cutter'
+            model = 'Refine MH-1351'
+            width = '120cm'
+            protocols = ['hpgl', 'dmpl']
+            connections = ['serial', 'printer']
+
+        DeviceDriver:
+            manufacturer = 'US Cutter'
+            model = 'Refine MH-721'
+            width = '60cm'
+            protocols = ['hpgl', 'dmpl']
+            connections = ['serial', 'printer']
+
+        DeviceDriver:
+            manufacturer = 'US Cutter'
+            model = 'Laser Point'
+            width = '61cm'
+            protocols = ['hpgl', 'dmpl']
+            connections = ['serial', 'printer']
+
+        DeviceDriver:
+            manufacturer = 'Graphtec'
+            model = 'CE5000-60'
+            width = '60cm'
+            protocols = ['hpgl', 'gpgl']
+            connections = ['serial']
+
+        DeviceDriver:
+            manufacturer = 'Graphtec'
+            model = '8000-130'
+            width = '130cm'
+            length = '700cm'
+            protocols = ['hpgl', 'gpgl']
+            connections = ['serial']
+
+        DeviceDriver:
+            manufacturer = 'Silhouette'
+            model = 'Cameo 4'
+            width = '300cm'
+            length = '30.5cm'
+            protocols = ['gpgl']
+            connections = ['printer']
+            default_config = {
+              'scale': [ 5.64, 5.64 ],
+              'swap_xy': True,
+              'mirror_x': True,
+              'mirror_y': True
+            }
+
+        DeviceDriver:
+            manufacturer = 'Silhouette'
+            model = 'Portrait'
+            width = '300cm'
+            length = '20cm'
+            protocols = ['gpgl']
+            connections = ['printer']
+            default_config = {
+              'scale': [ 5.64, 5.64 ]
+            }
+
+        DeviceDriver:
+            manufacturer = 'Ioline'
+            model = 'Classic'
+            width = '60cm'
+            protocols = ['hpgl', 'dmpl']
+            connections = ['serial']
+
+        DeviceDriver:
+            manufacturer = 'Creation'
+            model = 'PCut CT-630'
+            width = '61cm'
+            protocols = ['hpgl', 'dmpl']
+            connections = ['serial']
+
+        DeviceDriver:
+            manufacturer = 'Mimaki'
+            model = 'CG-60ST'
+            width = '60cm'
+            protocols = ['hpgl', 'dmpl']
+            connections = ['serial']
+
+        DeviceDriver:
+            manufacturer = 'Gcc'
+            model = 'Bob cat 60'
+            width = '60cm'
+            protocols = ['hpgl', 'dmpl']
+            connections = ['serial']
+
+        DeviceDriver:
+            manufacturer = 'Summa'
+            model = 'D120R'
+            width = '120cm'
+            protocols = ['hpgl', 'dmpl']
+            connections = ['serial']
+
+        DeviceDriver:
+            manufacturer = 'Summa'
+            model = 'T600'
+            width = '575cm'
+            protocols = ['hpgl', 'dmpl']
+            connections = ['serial']
+
+        DeviceDriver:
+            manufacturer = 'Roland'
+            model = 'CM 24'
+            width = '61cm'
+            protocols = ['hpgl', 'dmpl']
+            connections = ['serial']
+
+        DeviceDriver:
+            manufacturer = 'Roland'
+            model = 'CX-24'
+            width = '60cm'
+            length = '50cm'
+            protocols = ['hpgl', 'dmpl']
+            connections = ['serial','printer']
+
+        DeviceDriver:
+            manufacturer = 'Secabo'
+            model = 'C60ii'
+            width = '60cm'
+            protocols = ['hpgl']
+
+        DeviceDriver:
+            manufacturer = 'SeikiTech'
+            model = 'SK-870T'
+            width = '86cm'
+            protocols = ['hpgl', 'dmpl']
+            connections = ['serial']
+
+        DeviceDriver:
+            manufacturer = 'Redsail'
+            model = 'RS1360C'
+            width = '120cm'
+            protocols = ['hpgl', 'dmpl']
+            connections = ['serial']
+
+        DeviceDriver:
+            manufacturer = 'Rheinstern'
+            model = ' LB-720A'
+            width = '720cm'
+            protocols = ['hpgl', 'dmpl']
+            connections = ['serial']
+
+        DeviceDriver:
+            manufacturer = 'Vision'
+            model = ' VE-810 (XD) Engraver'
+            width = '10in'
+            length = '8in'
+            protocols = ['hpgl']
+            connections = ['serial']
+
+        DeviceDriver:
+            manufacturer = 'Sekonic'
+            model = ' SPL-450'
+            width = '44cm'
+            length = '30cm'
+            protocols = ['hpgl']
+            connections = ['serial','qtserial']
+
+        DeviceDriver:
+            manufacturer = 'VEVOR'
+            model = 'Smart 1'
+            width = '30.48cm'
+            length = '34.78cm'
+            protocols = ['hpgl']
+            connections = ['parallel']
+            default_config = {
+            }
+
+#        DeviceDriver:
+#            manufacturer = 'Vision'
+#            model = ' VE-810 (XD) Engraver (configured)'
+#            width = '10in'
+#            length = '8in'
+#            protocols = ['hpgl']
+#            connections = ['serial']
+#            default_config = dict(
+#                scale=[-1, 1],
+#                connection=dict(
+#                    serial=dict(
+#                        baudrate=123456,
+#                        port='/dev/ttyUSB0',
+#                        rtscts=True,
+#                    )
+#                )
+#            )
+
+
+        #: Load any drivers from external sources
+        Include:
+            objects = load_drivers()

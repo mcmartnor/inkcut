@@ -1,0 +1,195 @@
+# -*- coding: utf-8 -*-
+"""
+The "Calibrate Cut" wizard dialog.
+
+Two steps: pick a blade preset (or type the offset), then iterate test
+cuts — cut the diagnostic pattern, click the picture that matches the
+corners, and the offset is nudged until the corners come out crisp.
+The final value is stored in the device's blade-offset filter so every
+future job uses it.
+
+Copyright (c) 2026, distributed under the terms of the GPL v3 License.
+"""
+from enaml.core.api import Conditional
+from enaml.icon import Icon, IconImage
+from enaml.image import Image
+from enaml.layout.api import align, hbox, spacer
+from enaml.widgets.api import (
+    Container, Dialog, Form, Label, ObjectCombo, PushButton
+)
+from enaml.qt.QtWidgets import QApplication
+from enamlx.widgets.api import DoubleSpinBox
+from inkcut.core.utils import log
+from .calibration import (
+    ADJUST_STEP_MM, BLADE_PRESETS, RESULT_HIGH, RESULT_LOW, RESULT_OK,
+    adjust_offset, get_offset_mm, result_icon_png, save_offset_mm,
+    submit_test_cut
+)
+
+
+def _icon(kind):
+    """ An enaml Icon for one of the drawn result images. """
+    return Icon(images=[IconImage(image=Image(data=result_icon_png(kind)))])
+
+
+enamldef CalibrateDialog(Dialog): dialog:
+    """ Device menu -> Calibrate Cut... """
+    attr plugin
+    attr workbench
+    attr page: int = 1
+    attr offset_mm: float = get_offset_mm(plugin.device) if plugin.device \
+        else 0.25
+    attr status_text: str = ""
+    title = QApplication.translate("calibration", "Calibrate Cut")
+
+    func apply_preset(name):
+        for label, value in BLADE_PRESETS:
+            if label == name and value is not None:
+                dialog.offset_mm = value
+
+    func make_test_cut():
+        if submit_test_cut(plugin, workbench, dialog.offset_mm):
+            dialog.status_text = QApplication.translate(
+                "calibration",
+                "Test cut sent with a %s mm offset. Inspect the corners "
+                "of the square when it finishes.") \
+                % round(dialog.offset_mm, 2)
+
+    func pick_result(kind):
+        if kind == RESULT_OK:
+            dialog.status_text = QApplication.translate(
+                "calibration",
+                "Crisp corners! Click Finish to keep %s mm.") \
+                % round(dialog.offset_mm, 2)
+            return
+        dialog.offset_mm = adjust_offset(dialog.offset_mm, kind)
+        dialog.status_text = QApplication.translate(
+            "calibration",
+            "Offset adjusted to %s mm. Make another test cut to "
+            "verify.") % round(dialog.offset_mm, 2)
+
+    func finish():
+        device = plugin.device
+        if device:
+            try:
+                save_offset_mm(device, plugin.filters, dialog.offset_mm)
+            except Exception as e:
+                workbench.message_critical(
+                    QApplication.translate("calibration", "Calibrate Cut"),
+                    str(e))
+                return
+        dialog.accept()
+
+    Container:
+        Conditional:
+            condition << dialog.page == 1
+            Label:
+                text = QApplication.translate(
+                    "calibration", "Step 1 of 2 — Blade")
+                style_class = 'h4'
+            Label:
+                text = QApplication.translate(
+                    "calibration",
+                    "A drag knife pivots in its holder: the tip sits a little\n"
+                    "behind the center of rotation. The machine must compensate\n"
+                    "for that distance in corners, or they come out rounded or\n"
+                    "overshot. Pick the preset that matches your blade, or type\n"
+                    "the offset from its datasheet.")
+            Form:
+                padding = 0
+                Label:
+                    text = QApplication.translate("calibration", "Blade")
+                ObjectCombo: preset_box:
+                    items = [p[0] for p in BLADE_PRESETS]
+                    selected ::
+                        apply_preset(change['value'])
+                Label:
+                    text = QApplication.translate(
+                        "calibration", "Blade offset")
+                DoubleSpinBox:
+                    value := dialog.offset_mm
+                    minimum = 0.0
+                    maximum = 2.0
+                    decimals = 2
+                    single_step = ADJUST_STEP_MM
+                    suffix = " mm"
+        Conditional:
+            condition << dialog.page == 2
+            Label:
+                text = QApplication.translate(
+                    "calibration", "Step 2 of 2 — Test cut")
+                style_class = 'h4'
+            Label:
+                text = QApplication.translate(
+                    "calibration",
+                    "Load some scrap vinyl, jog to a clear spot and set the\n"
+                    "origin on the cutter's panel. Then cut the test pattern:\n"
+                    "a 50 mm square inside a 60 mm circle. Each test cut uses\n"
+                    "the current offset.")
+            PushButton:
+                text = QApplication.translate(
+                    "calibration", "Make a test cut")
+                clicked :: make_test_cut()
+            Label:
+                text = QApplication.translate(
+                    "calibration",
+                    "Weed the square and click the picture that best matches\n"
+                    "its corners:")
+            Container:
+                padding = 0
+                constraints = [
+                    hbox(low_btn, ok_btn, high_btn, spacer),
+                    align('v_center', low_btn, ok_btn, high_btn),
+                ]
+                PushButton: low_btn:
+                    text = QApplication.translate(
+                        "calibration", "Rounded")
+                    tool_tip = QApplication.translate(
+                        "calibration",
+                        "Corners are rounded or blunt — the offset is "
+                        "too small")
+                    icon = _icon(RESULT_LOW)
+                    icon_size = (72, 72)
+                    clicked :: pick_result(RESULT_LOW)
+                PushButton: ok_btn:
+                    text = QApplication.translate(
+                        "calibration", "Crisp")
+                    tool_tip = QApplication.translate(
+                        "calibration",
+                        "Corners are sharp and clean — the offset is "
+                        "correct")
+                    icon = _icon(RESULT_OK)
+                    icon_size = (72, 72)
+                    clicked :: pick_result(RESULT_OK)
+                PushButton: high_btn:
+                    text = QApplication.translate(
+                        "calibration", "Overshot")
+                    tool_tip = QApplication.translate(
+                        "calibration",
+                        "Corners overshoot into little flags — the "
+                        "offset is too large")
+                    icon = _icon(RESULT_HIGH)
+                    icon_size = (72, 72)
+                    clicked :: pick_result(RESULT_HIGH)
+            Label:
+                text << dialog.status_text
+        Container:
+            padding = 0
+            constraints = [
+                hbox(back_btn, spacer, cancel_btn, next_btn, finish_btn),
+            ]
+            PushButton: back_btn:
+                text = QApplication.translate("calibration", "Back")
+                visible << dialog.page == 2
+                clicked :: dialog.page = 1
+            PushButton: cancel_btn:
+                text = QApplication.translate("calibration", "Cancel")
+                clicked :: dialog.reject()
+            PushButton: next_btn:
+                text = QApplication.translate("calibration", "Next")
+                visible << dialog.page == 1
+                clicked :: dialog.page = 2
+            PushButton: finish_btn:
+                text = QApplication.translate("calibration", "Finish")
+                visible << dialog.page == 2
+                clicked :: finish()

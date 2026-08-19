@@ -1,0 +1,354 @@
+"""
+Copyright (c) 2017-2020 The Inkcut Team.
+
+Distributed under the terms of the GPL v3 License.
+
+The full license is in the file LICENSE, distributed with this software.
+
+Created on Jul 14, 2015
+
+@author: jrm
+"""
+from enaml.core.api import Conditional, Include, Looper
+from enaml.layout.api import align, hbox, spacer
+from enaml.stdlib.dialog_buttons import DialogButtonBox, DialogButton
+from enaml.stdlib.task_dialog import (
+    TaskDialogBody, TaskDialogCommandArea,
+    TaskDialogContentArea, TaskDialogDetailsArea, TaskDialogFootnoteArea,
+    TaskDialogIconArea, TaskDialogInstructionArea, TaskDialogStyleSheet
+)
+from enaml.widgets.api import (
+    CheckBox, Container, Dialog, Field, Label, PushButton, Form, Notebook,
+    Page, ObjectCombo, Splitter, SplitItem, Menu, Action
+)
+from enaml.qt.QtWidgets import QApplication
+from enamlx.widgets.api import (
+    TreeView, TreeViewItem, TreeViewColumn, DoubleSpinBox
+)
+
+from .plugin import Device, DeviceConfig, DevicePlugin, DeviceProtocol
+from .view import ConfigView, DeviceConfigView
+from inkcut.core.api import Model
+from inkcut.core.utils import to_unit, from_unit, load_icon
+
+
+def sort_filters(plugin: DevicePlugin, filters: list) -> list:
+    # This is pushed into a separate function Workaround an enaml bug
+    # with using the lambda
+    order = { x.id: i for (i, x) in enumerate(plugin.filters) }
+    filters.sort(key=lambda x: order.get(x.declaration.id, -1))
+    return filters
+
+
+enamldef ConfigEditView(Include):
+    attr configurable: Model # Pair of config model and config declaration
+
+    func load_config_view(config, declaration):
+        View = declaration.config_view()
+        return [View(model=config)]
+    objects << load_config_view(configurable.config, configurable.declaration) \
+        if configurable else [ConfigView(model=Model())]
+
+
+enamldef DeviceEditView(Notebook): notebook:
+    """ View to edit a single Device instance
+
+    """
+    attr plugin
+    attr device: Device
+    attr driver << device.declaration
+    attr units << plugin.workbench.get_plugin("inkcut.job").units
+    attr connection << device.connection
+    tab_style = 'document'
+    Page:
+        title = QApplication.translate("device", "General")
+        closable = False
+        Container:
+            padding = 0
+            Form:
+                Label:
+                    text = QApplication.translate("device", "Name")
+                Field:
+                    text := device.name
+                Label:
+                    text = QApplication.translate("device", "Driver")
+                Field:
+                    text << QApplication.translate("device", driver.id)
+                    read_only = True
+                Label:
+                    text = QApplication.translate("device", "Manufacturer")
+                Field:
+                    enabled << cb.checked
+                    text := device.manufacturer
+                Label:
+                    text = QApplication.translate("device", "Model")
+                Field:
+                    enabled << cb.checked
+                    text := device.model
+                Label:
+                    text = QApplication.translate("device", "Width")
+                DoubleSpinBox:
+                    enabled << cb.checked
+                    value << to_unit(device.area.size[0], units)
+                    value :: device.area.size[0] = from_unit(value, units)
+                    suffix << " " + units
+                    maximum = 99999.9
+                    single_step = 0.1
+                Label:
+                    text = QApplication.translate("device", "Length")
+                DoubleSpinBox:
+                    enabled << cb.checked
+                    value << to_unit(device.area.size[1], units)
+                    value :: device.area.size[1] = from_unit(value, units)
+                    suffix << " " + units
+                    maximum = 99999.9
+                    single_step = 0.1
+                CheckBox: cb:
+                    text = QApplication.translate("device", "Custom")
+                    checked := device.custom
+    Page:
+        title = QApplication.translate("device", "Device")
+        closable = False
+        ConfigEditView:
+            configurable << device
+    Page:
+        title = QApplication.translate("device", "Connection")
+        closable = False
+        Container:
+            padding = 0
+            Form:
+                Label:
+                    text = QApplication.translate("device", "Type")
+                ObjectCombo:
+                    attr supported_transports << device.transports \
+                        if device and device.transports else plugin.transports
+                    items << sorted(supported_transports, key=lambda t: t.name)
+                    to_string = lambda t: QApplication.translate("device", t.name)
+
+                    func get_selected(device):
+                        if not device or not device.connection:
+                            return
+                        tid = device.connection.declaration.id
+                        for t in plugin.transports:
+                            if t.id == tid:
+                                return t
+
+                    selected << get_selected(device)
+                    selected ::
+                        # Since this will trigger when the device changes, only actually update
+                        # if the connection changes
+                        if selected and selected.id != device.connection.declaration.id:
+                            declaration = selected
+                            protocol = None
+                            if device.connection and device.connection.protocol:
+                                # Copy from old connection
+                                protocol = device.connection.protocol
+                            device.connection = declaration.factory(driver, declaration, protocol)
+                # Label:
+                #     text = ""
+                # PushButton:
+                #     text = "Test"
+                #     clicked :: device.test()
+            ConfigEditView:
+                configurable << connection
+
+    Page:
+        title = QApplication.translate("device", "Protocol")
+        closable = False
+        attr protocol << device.connection.protocol \
+            if device and device.connection else None
+        Container:
+            padding = 0
+            Form:
+                Label:
+                    text = QApplication.translate("device", "Language")
+                ObjectCombo:
+                    items << [
+                            p for p in plugin.protocols
+                            if not device.declaration.protocols or p.id in device.declaration.protocols
+                        ]
+                    to_string = lambda p: p.name
+                    attr selected_protocols << [p for p in plugin.protocols
+                                if protocol and p.id == protocol.declaration.id]
+                    selected << selected_protocols[0] if selected_protocols else None
+                    selected ::
+                        # Since this will trigger when the device changes, only actually update
+                        # if the protocol changes
+                        if selected and selected.id != device.connection.protocol.declaration.id:
+                            declaration = selected
+                            device.connection.protocol = declaration.factory(driver, declaration)
+
+            ConfigEditView:
+                configurable << protocol
+    Page:
+        title = QApplication.translate("device", "Filters")
+        closable = False
+        Container:
+            padding = 0
+            Notebook:
+                tab_style = 'document'
+                tab_position = 'left'
+                Looper:
+                    iterable << plugin.filters
+                    Page:
+                        title = loop_item.name
+                        closable = False
+                        attr matching_filters << [f for f in device.filters if f.declaration and f.declaration.id == loop_item.id]
+                        attr current_filter << matching_filters[0] if matching_filters else None
+                        Container:
+                            padding = 0
+                            Form:
+                                CheckBox:
+                                    text = QApplication.translate("device", 'Enabled')
+                                    checked << bool(matching_filters)
+                                    checked ::
+                                         if change['value']:
+                                             filters = device.filters[:]
+                                             f = loop_item.factory()
+                                             f.declaration = loop_item
+                                             filters.append(f)
+                                             device.filters = sort_filters(plugin, filters)
+                                         else:
+                                             device.filters = [f for f in device.filters if f.declaration.id != loop_item.id]
+                            Include:
+                                objects << [
+                                    loop_item.config_view()(model=current_filter.config)
+                                ] if current_filter and current_filter.config else []
+
+
+enamldef NewDeviceDialog(Dialog): dialog:
+    attr plugin
+    attr resultDriver = plugin.drivers[0]
+    title = QApplication.translate("device", "New device")
+    TaskDialogBody:
+        TaskDialogInstructionArea:
+            Label:
+                text = QApplication.translate("device", "Select device")
+        TaskDialogContentArea:
+            Label:
+                text = QApplication.translate("device", "Driver:")
+            ObjectCombo:
+                    items << plugin.drivers
+                    to_string = lambda d: QApplication.translate("device", d.id)
+                    selected >> dialog.resultDriver
+        TaskDialogCommandArea:
+            DialogButtonBox: bbox:
+                buttons = [
+                    DialogButton('OK', 'accept'),
+                    DialogButton('Cancel', 'reject'),
+                ]
+
+enamldef DeviceDialog(Dialog): dialog:
+    title = QApplication.translate("device", "Configure device")
+    initial_size = (640, 320)
+    attr plugin
+    activated :: btn_yes.set_focus()
+    func remove_device(device):
+        if device in plugin.devices and len(plugin.devices) > 1:
+            devices = plugin.devices[:]
+            devices.remove(device)
+            plugin.device = devices[0]
+            plugin.devices = devices
+
+    func copy_device(device):
+        new_dev = device.clone(plugin)
+        new_dev.name += " " + QApplication.translate("device", "copy")
+        devices = plugin.devices[:]
+        devices.append(new_dev)
+        plugin.devices = devices
+
+    func add_device():
+        selection = NewDeviceDialog(self, plugin=plugin) 
+        accepted = selection.exec_()
+        if not accepted:
+            return
+        devices = plugin.devices[:]
+        new_dev = plugin.get_device_from_driver(selection.resultDriver)
+        new_dev.name = new_dev.name + " " + selection.resultDriver.id
+        devices.append(new_dev)
+        plugin.device = new_dev
+        plugin.devices = devices
+
+    func cancel():
+        dialog.close()
+
+    func save():
+        dev = plugin.device
+        if not dev.connection:
+            dev.connection = dev._default_connection()
+        if not dev.connection.protocol:
+            dev.connection.protocol = dev._create_default_protocol()
+        if dev not in plugin.devices:
+            plugin.devices.append(dev)
+        plugin.device = dev
+        plugin.save()
+
+        #: Hackk...
+        job_plugin = plugin.workbench.get_plugin('inkcut.job')
+        job_plugin.refresh_preview()
+
+        dialog.close()
+
+    Conditional:
+        # Only use this if not using the system theme
+        condition << not (plugin.workbench.get_plugin('inkcut.ui').dock_style == 'system')
+        TaskDialogStyleSheet:
+                pass
+    TaskDialogBody:
+        TaskDialogInstructionArea:
+            Label:
+                style_class = 'task-dialog-instructions'
+                text = QApplication.translate("device", "Configure device")
+        TaskDialogContentArea:
+            Splitter:
+                SplitItem:
+                    Container:
+                        padding = 0
+                        TreeView: tree:
+                            horizontal_headers = [QApplication.translate("device", "Available Devices")]
+                            horizontal_stretch = True
+                            show_root = False
+                            show_vertical_header = False
+                            items << plugin.devices
+                            Menu:
+                                Action:
+                                    text = 'Add'
+                                    triggered :: add_device()
+                            Looper:
+                                iterable << plugin.devices
+                                TreeViewItem:
+                                    selected << loop_item == plugin.device
+                                    text << loop_item.name
+                                    clicked :: plugin.device = loop_item
+                                    Menu:
+                                        Action:
+                                            text = QApplication.translate("device", "Remove")
+                                            triggered :: remove_device(loop_item)
+                                        Action:
+                                            text = QApplication.translate("device", "Copy")
+                                            triggered :: copy_device(loop_item)
+                        PushButton:
+                            icon = load_icon('add')
+                            text = QApplication.translate("device", "Add")
+                            clicked :: add_device()
+                SplitItem:
+                    stretch = 4
+                    Container:
+                        padding = 0
+                        DeviceEditView:
+                            plugin << dialog.plugin
+                            device := plugin.device
+
+        TaskDialogCommandArea:
+            constraints = [
+                hbox(lbl_dev, spacer, btn_yes, btn_no),
+                align('v_center', lbl_dev, btn_yes, btn_no),
+            ]
+            Label: lbl_dev:
+                text << QApplication.translate("device", "Activated Device") + ": {}".format(plugin.device.name)
+            PushButton: btn_no:
+                text = QApplication.translate("device", "Cancel")
+                clicked :: cancel()
+            PushButton: btn_yes:
+                text = QApplication.translate("device", "OK")
+                clicked :: save()

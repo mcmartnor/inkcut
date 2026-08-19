@@ -1,0 +1,101 @@
+"""
+Copyright (c) 2017, Jairus Martin.
+
+Distributed under the terms of the GPL v3 License.
+
+The full license is in the file LICENSE, distributed with this software.
+
+Created on Dec 16, 2017
+
+@author: jrm
+"""
+from enaml.core.api import Conditional, Include
+from enaml.layout.api import align, hbox, spacer
+from enaml.qt.QtWidgets import QApplication
+from enaml.stdlib.mapped_view import MappedView
+from enaml.stdlib.task_dialog import (
+    TaskDialogBody, TaskDialogCommandArea,
+    TaskDialogContentArea, TaskDialogDetailsArea, TaskDialogFootnoteArea,
+    TaskDialogIconArea, TaskDialogInstructionArea, TaskDialogStyleSheet
+)
+from enaml.widgets.api import (
+    CheckBox, Container, Dialog, Field, Label, PushButton, Form, Notebook,
+    Page, ObjectCombo
+)
+from .plugin import Job
+from inkcut.core.api import to_unit
+
+
+enamldef JobApprovalDialog(Dialog): dialog:
+    title = QApplication.translate("job", "Approve Job")
+    initial_size = (640, 320)
+    attr plugin
+    attr device = plugin.workbench.get_plugin('inkcut.device').device
+    attr job_plugin << plugin.workbench.get_plugin('inkcut.job')
+    attr job: Job
+    Conditional:
+        # Only use this if not using the system theme
+        condition << not (plugin.workbench.get_plugin('inkcut.ui').dock_style == 'system')
+        TaskDialogStyleSheet:
+                pass
+    TaskDialogBody:
+        TaskDialogInstructionArea:
+            Label:
+                style_class = 'task-dialog-instructions'
+                text = QApplication.translate("job", "Approve Job")
+        TaskDialogContentArea:
+            Label:
+                style_class = 'task-dialog-content'
+                text = QApplication.translate("job", "Are you sure you want to start?")
+            Form:
+                Label:
+                    text = QApplication.translate("job", "Job")
+                    tool_tip = QApplication.translate("job", "Name of the document")
+                Label:
+                    text << str(job)
+                Label:
+                    text = QApplication.translate("job", "Device")
+                    tool_tip = QApplication.translate("job", "Name of the device")
+                Label:
+                    text << device.name
+                Label:
+                    text = QApplication.translate("job", "Duration")
+                    tool_tip = QApplication.translate("job", "Estimated job duration based on given speed and the job size.")
+                Label:
+                    text << "{} min {} sec".format(
+                            int(job.info.duration.total_seconds() / 60),
+                            int(job.info.duration.total_seconds() % 60),
+                        )
+                Label:
+                    text = QApplication.translate("job", "Material")
+                    tool_tip = QApplication.translate("job", "Estimated material usage")
+                Label:
+                    text << "Size: {}{} x {}{}".format(
+                            round(to_unit(job.model.boundingRect().height(), job_plugin.units),2),
+                            job_plugin.units,
+                            round(to_unit(job.model.boundingRect().width(), job_plugin.units), 2),
+                            job_plugin.units
+                        )
+#                Label:
+#                    text = QApplication.translate("job", "Cost")
+#                    tool_tip = QApplication.translate("job", "Estimated material cost")
+#                Label:
+#                    text << "${}".format(job.model.boundingRect())
+        TaskDialogCommandArea:
+            constraints = [
+                hbox(cbx, spacer, btn_yes, btn_no),
+                align('v_center', cbx, btn_yes, btn_no),
+            ]
+            CheckBox: cbx:
+                text = QApplication.translate("job", "Don't ask again")
+                checked := job.info.auto_approve
+            PushButton: btn_no:
+                text = QApplication.translate("job", "Cancel")
+                clicked ::
+                    job.info.status = 'cancelled'
+                    dialog.close()
+            PushButton: btn_yes:
+                text = QApplication.translate("job", "Start")
+                clicked ::
+                    job.info.status = 'approved'
+                    dialog.close()

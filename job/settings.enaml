@@ -1,0 +1,53 @@
+"""
+Copyright (c) 2019, Jairus Martin.
+
+Distributed under the terms of the GPL v3 License.
+
+The full license is in the file LICENSE, distributed with this software.
+
+Created on May 25, 2019
+
+@author: jrm
+"""
+import textwrap
+from enaml.widgets.api import Container, Form, Label, ObjectCombo, CheckBox
+from enaml.qt.QtWidgets import QApplication
+from enamlx.widgets.api import DoubleSpinBox
+
+
+enamldef JobSettingsPage(Container):
+    padding = 0
+    attr model
+    Form:
+        Label:
+            text = QApplication.translate("settings", "Default Units")
+        ObjectCombo:
+            items = list(sorted(model.get_member('units').items))
+            selected := model.units
+        Label:
+            text = QApplication.translate("settings", "Default DPI")
+        DoubleSpinBox:
+            suffix = ' dpi'
+            value := model.dpi_default
+            tool_tip = textwrap.dedent("""
+                When importing SVG files, if no units are specified,
+                how many units per inch should be assumed.  Changing
+                this requires closing and re-opening the working document.
+                """).strip()
+        Label:
+            text = QApplication.translate("settings", "Auto-detect Inkscape DPI")
+        CheckBox:
+            text = QApplication.translate("settings", "Enabled")
+            checked := model.dpi_auto_detect_inkscape
+            tool_tip = textwrap.dedent("""
+                Use 96DPI for Inkscape 0.92 and above, or 90dpi for older versions.
+                Inkscape version is detected based on the 'inkscape:version' tag found
+                in the root <svg> element of the document.  Overrides default DPI
+                if Inkscape document is detected.  Changing this requires closing and
+                re-opening the working document.
+                """).strip()
+        Label:
+            text = QApplication.translate("settings", "Optimizer timeout")
+        DoubleSpinBox:
+            suffix = ' sec'
+            value := model.optimizer_timeout

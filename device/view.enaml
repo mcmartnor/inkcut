@@ -1,0 +1,364 @@
+# -*- coding: utf-8 -*-
+"""
+Copyright (c) 2017, Jairus Martin.
+
+Distributed under the terms of the GPL v3 License.
+
+The full license is in the file LICENSE, distributed with this software.
+
+Created on Dec 7, 2017
+
+@author: jrm
+"""
+import os
+import textwrap
+from enaml.layout.api import hbox, vbox, spacer, align
+from enaml.qt.QtWidgets import QApplication
+from enaml.widgets.api import (
+    Form, CheckBox, Container, Label, ProgressBar, PushButton, Notebook, Page, ObjectCombo,
+    Action, Menu, MultilineField, SpinBox
+)
+from enamlx.widgets.api import DoubleSpinBox
+from inkcut.core.api import Model, DockItem
+from inkcut.core.utils import to_unit, load_icon
+from inkcut.preview.plot_view import PlotView
+from .plugin import DeviceConfig
+
+
+enamldef ConfigView(Container):
+    attr model: Model
+    Label:
+        text = QApplication.translate("device", "No configuration available.")
+
+
+enamldef DeviceConfigView(Container):
+    attr model: DeviceConfig
+    Notebook:
+        tab_style = 'document'
+        tab_position = 'left'
+        Page:
+            closable = False
+            title = QApplication.translate("device", "Settings")
+            Form:
+                Label:
+                    text = QApplication.translate("device", "Speed")
+                DoubleSpinBox:
+                    minimum = 0
+                    maximum = 999999999
+                    value := model.speed
+                    single_step = 4
+                    suffix << " {}".format(model.speed_units)
+                Label:
+                    text = ""
+                CheckBox:
+                    text = QApplication.translate("device", "Enabled")
+                    checked := model.speed_enabled
+                Label:
+                    text = QApplication.translate("device", "Force")
+                DoubleSpinBox:
+                    minimum = 0
+                    maximum = 999999999
+                    value := model.force
+                    single_step = 10
+                    suffix << " {}".format(model.force_units)
+                Label:
+                    text = ""
+                CheckBox:
+                    text = QApplication.translate("device", "Enabled")
+                    checked := model.force_enabled
+        Page:
+            closable = False
+            title = QApplication.translate("device", "Output")
+            Form:
+                Label:
+                    text = QApplication.translate("device", "Orientation")
+                Container:
+                    constraints = [
+                        hbox(cbsxy, cbmx, cbmy, spacer),
+                        align('v_center', cbsxy, cbmx, cbmy)
+                    ]
+                    CheckBox: cbsxy:
+                        text = QApplication.translate("device", "Swap X/Y")
+                        checked := model.swap_xy
+                    CheckBox: cbmx:
+                        text = QApplication.translate("device", "Mirror X")
+                        checked := model.mirror_x
+                    CheckBox: cbmy:
+                        text = QApplication.translate("device", "Mirror Y")
+                        checked := model.mirror_y
+                #Label:
+                    #text = QApplication.translate("device", "Rotation")
+                #ObjectCombo:
+                    #items = list(model.get_member('rotation').items)
+                    #selected := model.rotation
+                    #tool_tip = textwrap.dedent("""
+                    #Final output rotation.
+                    #""").strip()
+                Label:
+                    text = QApplication.translate("device", "Scale")
+                Form:
+                    Label:
+                        text = "x"
+                    DoubleSpinBox:
+                        value := model.scale[0]
+                        decimals = 6
+                        minimum = -9999.9
+                        maximum = 9999.9
+                        tool_tip = textwrap.dedent("""
+                        Final output scale for the x-axis.
+                        A value of '1' here means '90 points per inch'. For example:
+                        Suppose your device is 96 ppi, configure 96/90=1.06 here.
+                        Suppose your device is 200 points per cm, configure 200*2.54/90=5.64 here.
+                        """).strip()
+                    Label:
+                        text = "y"
+                    DoubleSpinBox:
+                        value := model.scale[1]
+                        decimals = 6
+                        minimum = -9999.9
+                        maximum = 9999.9
+                        tool_tip = textwrap.dedent("""
+                            Final output scale for the y-axis.
+                            A value of '1' here means '90 points per inch'. For example:
+                            Suppose your device is 96 ppi, configure 96/90=1.06 here.
+                            Suppose your device is 200 points per cm, configure 200*2.54/90=5.64 here.
+                            """).strip()
+
+        Page:
+            closable = False
+            title = QApplication.translate("device", "Advanced")
+            Form:
+                Label:
+                    pass
+                CheckBox:
+                    text = QApplication.translate("device", "Uses spooling service")
+                    checked := model.spooled
+                    tool_tip = textwrap.dedent("""
+                    If checked this will ignore interpolation settings and speed/delay settings.
+                    Spooled data simply goes into the spooling service's buffer these features do
+                    not apply. This should be enabled if using a device connected as a printer.
+                    """).strip()
+
+                Label:
+                    pass
+                CheckBox:
+                    enabled << not model.spooled
+                    checked := model.interpolate
+                    text = QApplication.translate("device", "Interpolate paths")
+                    tool_tip = textwrap.dedent("""
+                    If enabled this will break down the commands into
+                    smaller steps. This enables you to pause mid job for devices using streamed
+                    connections or motor control. It is not recommended for spooled (printer)
+                    devices.
+                    """).strip()
+                Label:
+                    text = QApplication.translate("device", "Step size")
+                    tool_tip = textwrap.dedent("""
+                    Sets the step size to use when interpolation is enabled.
+                    """).strip()
+                DoubleSpinBox:
+                    enabled << model.interpolate
+                    value << to_unit(model.step_size, 'mm')
+                    value :: model.step_size = from_unit(change['value'],'mm')
+                    suffix << " "+'mm'
+                    minimum = 0.00001
+                    maximum = 99999.9
+                Label:
+                    text = QApplication.translate("device", "Step time")
+                    tool_tip = textwrap.dedent("""
+                    Sets the time to wait before sending the next command when interpolation
+                    is used.
+                    """).strip()
+                DoubleSpinBox:
+                    enabled << model.interpolate
+                    value := model.step_time
+                    suffix << " ms"
+                    minimum = 0
+                    maximum = 1000
+                Label:
+                    text = QApplication.translate("device", "Quality factor")
+                    tool_tip = textwrap.dedent("""
+                        Adjusts the quality of conversion from curves to polygons. Increasing
+                        this number will improve quality (more points on each curve) at the
+                        cost of more points needing to be processed by the device and stored
+                        in memory.
+                        """).strip()
+                DoubleSpinBox:
+                    value := model.quality_factor
+                    single_step = 0.01
+                    minimum = 0.001
+                    maximum = 1000.00
+                Label:
+                    pass
+                CheckBox:
+                    text = QApplication.translate("device", "Pre-feed before cutting")
+                    checked := model.prefeed
+                    tool_tip = textwrap.dedent("""
+                    Feed the material out to the job's full length and back
+                    before cutting, so it hangs free of the roll. Prevents the
+                    cut from dragging media off a stiff roll, which can slip
+                    the feed or jam the carriage.
+                    """).strip()
+                Label:
+                    text = QApplication.translate("device", "Pre-feed speed (mm/s)")
+                    tool_tip = textwrap.dedent("""
+                    Average feed rate during the pre-feed, paced from the
+                    computer (works even on cutters that ignore velocity
+                    commands). Choose a speed slow enough that the vinyl
+                    roll can follow without the grit rollers slipping on
+                    the media.
+                    """).strip()
+                DoubleSpinBox:
+                    enabled << model.prefeed
+                    value := model.prefeed_speed
+                    single_step = 10.0
+                    minimum = 10.0
+                    maximum = 500.0
+                Label:
+                    text = QApplication.translate("device", "Cut speed")
+                    tool_tip = textwrap.dedent("""
+                    Machine velocity for the cut itself. 0 uses the machine's
+                    default: no velocity command is sent (the pre-feed is
+                    paced from the host, so it cannot slow down the cut).
+                    """).strip()
+                SpinBox:
+                    value := model.cut_velocity
+                    minimum = 0
+                    maximum = 50
+
+        Page:
+            closable = False
+            title = "Developer"
+            Form:
+                CheckBox:
+                    checked := model.test_mode
+                    text = QApplication.translate("device", "Test mode")
+                    tool_tip = textwrap.dedent("""
+                    When enabled, instead of sending data to the device this will just be printed
+                    to the log. It is for debugging purposes and should not normally be used.
+                    """).strip()
+        Page:
+           title = QApplication.translate("device", "Job commands")
+           closable = False
+           Form:
+               Label:
+                  text = QApplication.translate("device", "Before job")
+               MultilineField:
+                  text := model.commands_before
+                  tool_tip = QApplication.translate("device", "Commands here will get sent before starting a job")
+               Label:
+                  text = QApplication.translate("device", "After job")
+               MultilineField:
+                  text := model.commands_after
+                  tool_tip = QApplication.translate("device", "Commands here will get sent after finishing a job")
+        Page:
+           title = QApplication.translate("device", "Connection commands")
+           closable = False
+           Form:
+               Label:
+                   text = QApplication.translate("device", "After connect")
+               MultilineField:
+                   text := model.commands_connect
+                   tool_tip = QApplication.translate("device", "Commands here will get sent right after a connection is opened")
+               Label:
+                   text = QApplication.translate("device", "Before disconnect")
+               MultilineField:
+                   text := model.commands_disconnect
+                   tool_tip = QApplication.translate("device", "Commands here will get sent right before a connection is closed")
+
+
+enamldef DeviceProgressDockItem(DockItem):
+    title = QApplication.translate("device", "Live")
+    name = "device-progress-item"
+    icon = load_icon('printer')
+    attr plugin
+    attr preview_plugin << plugin.workbench.get_plugin('inkcut.preview')
+    attr preview << preview_plugin.live_preview
+    attr job_plugin << plugin.workbench.get_plugin('inkcut.job')
+    attr device << plugin.device
+    attr job << device.job
+    attr clock << plugin.workbench.get_plugin("inkcut.ui").clock
+    Container:
+        padding = 0
+        PlotView: plot:
+            minimum_size = (540, 320)
+            data := preview.plot
+            grid << (preview_plugin.show_grid_x, preview_plugin.show_grid_y)
+            grid_alpha << preview_plugin.grid_alpha/100.0
+            axis_scales << {
+                'left': to_unit(1, job_plugin.units),
+                'bottom': to_unit(1, job_plugin.units)
+            }
+
+            Menu:
+                context_menu = True
+                Action:
+                    text = QApplication.translate("device", "Abort job")
+                    triggered :: job.info.cancelled = True
+                Action:
+                    separator = True
+                Action:
+                    text = QApplication.translate("device", "View all")
+                    triggered :: plot.proxy.widget.autoRange()
+                Action:
+                    text = QApplication.translate("device", "Clear plot")
+                    triggered :: plugin.reset_preview()
+        Container:
+            constraints = [
+                vbox(
+                    hbox(lbl1, lbl2, lbl3, lbl4, lbl5, spacer),
+                    hbox(prog, pb1,pb2)),
+                align('v_center', prog, pb1,pb2),
+                align('v_center', lbl1, lbl2, lbl3, lbl4, lbl5)
+            ]
+            attr duration << job.info.duration.total_seconds() if job and job.info.duration else 0
+            Label: lbl1:
+                text << "Source: {}".format(job)
+            Label: lbl2:
+                text << "Size: {}{} x {}{}".format(
+                        round(to_unit(job.model.boundingRect().height(), job_plugin.units),2),
+                        job_plugin.units,
+                        round(to_unit(job.model.boundingRect().width(), job_plugin.units), 2),
+                        job_plugin.units
+                    ) if job and job.model else ""
+            Label: lbl3:
+                text << "Duration: {}".format(
+                        "{} min {} sec".format(int(duration/60),int(duration%60)
+                    ) if (job and job.info.duration) else "")
+            Label: lbl4:
+                attr t << max(0, ((job.info.started+job.info.duration)-clock.now).total_seconds()) if (
+                            job and job.info.duration) else 0
+                text << "Left: {}".format("{} min {} sec".format(int(t/60), int(t%60)
+                    ) if t else "")
+            Label: lbl5:
+                text << "Eta: {}".format(
+                    (job.info.started+job.info.duration).strftime("%X") if job and job.info.duration else ""
+                )
+            # Label: lbl:
+            # text << 'Position (x=%0.3f x y=%0.3f z=%s)'%(
+            #     device.position[0],
+            #     device.position[1],
+            #     device.position[2] and 'down' or 'up')
+            ProgressBar: prog:
+                value << int(job.info.progress) if job else 0
+                text_visible = True
+            PushButton: pb1:
+                visible << device.busy
+                text = "Abort"
+                tool_tip = QApplication.translate("device", "Abort the current job")
+                icon = load_icon('control_stop')
+                clicked :: job.info.cancelled = True
+            PushButton: pb2:
+                text << QApplication.translate("device", "Resume") if (job and job.info.paused and not job.info.cancelled) else (
+                    QApplication.translate("device", "Pause") if device.busy else QApplication.translate("device", "Start")
+                )
+                icon << load_icon('control_play' if ((job and job.info.paused)
+                                    or not device.busy)
+                                  else 'control_pause')
+                clicked ::
+                    if device.busy:
+                        job.info.paused = not job.info.paused
+                    elif job_plugin and job_plugin.job.document:
+                        core = plugin.workbench.get_plugin("enaml.workbench.core")
+                        core.invoke_command('inkcut.device.submit',
+                                            parameters={'job': job_plugin.job})

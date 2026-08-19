@@ -1,0 +1,199 @@
+"""
+Copyright (c) 2017, Jairus Martin.
+
+Distributed under the terms of the GPL v3 License.
+
+The full license is in the file LICENSE, distributed with this software.
+
+Created on Dec 6, 2015
+
+@author: jrm
+"""
+import os
+import sys
+import enaml
+from enaml.core.api import Looper
+from enaml.stdlib.dock_area_styles import available_styles
+from enaml.workbench.api import Extension, PluginManifest, ExtensionPoint
+from enaml.workbench.core.api import Command
+from enaml.workbench.ui.api import (
+    ActionItem, Branding, MenuItem, ItemGroup, Autostart
+)
+
+from inkcut.ui.extensions import (
+    DOCK_ITEM_POINT, SETTINGS_PAGE_POINT, SettingsPage
+)
+from inkcut.core.utils import menu_icon
+from enaml.qt.QtWidgets import QApplication
+
+def plugin_factory():
+    from inkcut.ui.plugin import InkcutPlugin
+    return InkcutPlugin()
+
+
+def undo(event):
+    plugin = event.workbench.get_plugin('inkcut.ui')
+    plugin.undo()
+
+
+def redo(event):
+    plugin = event.workbench.get_plugin('inkcut.ui')
+    plugin.redo()
+
+
+def open_settings(event):
+    with enaml.imports():
+        from inkcut.ui.settings import SettingsDialog
+    plugin = event.workbench.get_plugin('inkcut.ui')
+    ui = event.workbench.get_plugin('enaml.workbench.ui')
+    SettingsDialog(ui.window,
+                      plugin=event.workbench.get_plugin(
+                          'inkcut.ui')).exec_()
+
+def settings_page_factory():
+    with enaml.imports():
+        from .settings import SystemSettingsPage
+    return SystemSettingsPage
+
+
+def about_inkcut(event):
+    with enaml.imports():
+        from inkcut.ui.about_dialog import AboutDialog
+    plugin = event.workbench.get_plugin('inkcut.ui')
+    ui = event.workbench.get_plugin('enaml.workbench.ui')
+    AboutDialog(ui.window,
+                plugin=event.workbench.get_plugin(
+                    'inkcut.ui')).exec_()
+
+
+def open_webpage(page):
+    if sys.platform == 'win32':
+        os.startfile(page)
+    else:
+        import subprocess
+        cmd = "open" if sys.platform == "darwin" else "xdg-open"
+        subprocess.call([cmd, page])
+
+
+def set_theme(event):
+    plugin = event.workbench.get_plugin('inkcut.ui')
+    plugin.dock_style = event.parameters.get('theme', 'system')
+
+
+
+enamldef UIManifest(PluginManifest):
+    """ The plugin manifest for the primary example plugin.
+
+    This plugin acts as the entry point for all other plugins in this
+    example. It contributes the window branding, default actions, and
+    the workspace definitions.
+
+    """
+    id = 'inkcut.ui'
+    factory = plugin_factory
+
+    Extension:
+        id = 'branding'
+        point = 'enaml.workbench.ui.branding'
+        Branding:
+            title = ''
+
+    Extension:
+        id = 'commands'
+        point = 'enaml.workbench.core.commands'
+        Command:
+            id = 'inkcut.ui.open_settings'
+            handler = open_settings
+#         Command:
+#             id = 'inkcut.ui.undo'
+#             handler = undo
+#         Command:
+#             id = 'inkcut.ui.redo'
+#             handler = redo
+        Command:
+            id = 'inkcut.ui.set_theme'
+            handler = set_theme
+        Command:
+            id = 'inkcut.ui.open_webpage'
+            handler = lambda e:open_webpage(e.parameters['url'])
+
+    Extension:
+        id = 'autostart'
+        point = 'enaml.workbench.ui.autostart'
+        Autostart:
+            plugin_id = 'inkcut.ui'
+
+    ExtensionPoint:
+       id = DOCK_ITEM_POINT
+       description = "Add items to the dock!"
+
+    ExtensionPoint:
+        id = SETTINGS_PAGE_POINT
+        description = "Add pages to the settings dialog"
+
+    Extension:
+        id = 'settings'
+        point = SETTINGS_PAGE_POINT
+        SettingsPage:
+            name = QApplication.translate("settings", "System")
+            plugin_id = 'inkcut.ui'
+            factory = settings_page_factory
+
+    Extension:
+        id = 'actions'
+        point = 'enaml.workbench.ui.actions'
+        MenuItem:
+            path = '/settings'
+            label = QApplication.translate("settings", "Settings")
+            before = 'help'
+            after = 'file'
+        ActionItem:
+           path = '/settings/prefs'
+           label = QApplication.translate("settings", "Settings...")
+           command = 'inkcut.ui.open_settings'
+        ActionItem:
+            path = '/help/about'
+            label = QApplication.translate("settings", "About")
+            command = 'inkcut.ui.open_webpage'
+            parameters = {'url':'https://codelv.com/projects/inkcut/'}
+        ActionItem:
+            path = '/help/project'
+            label = QApplication.translate("settings", "Documentation")
+            command = 'inkcut.ui.open_webpage'
+            parameters = {'url':'https://codelv.com/projects/inkcut/docs/'}
+        ActionItem:
+            path = '/help/forum'
+            label = QApplication.translate("settings", "Forums")
+            command = 'inkcut.ui.open_webpage'
+            parameters = {'url':'https://inkcut.org/'}
+        ActionItem:
+            path = '/help/report'
+            label = QApplication.translate("settings", "Report issue")
+            command = 'inkcut.ui.open_webpage'
+            parameters = {'url':'https://github.com/codelv/inkcut/issues'}
+        ActionItem:
+            path = '/help/donate'
+            label = QApplication.translate("settings", "Donate")
+            command = 'inkcut.ui.open_webpage'
+            parameters = {'url':'https://codelv.com/projects/inkcut/support/'}
+        ActionItem:
+            path = '/help/logs'
+            label = QApplication.translate("settings", "Logs")
+            command = 'inkcut.ui.open_webpage'
+            parameters = {'url':os.path.expanduser('~/.config/inkcut/logs/')}
+#        ActionItem:
+#            path = '/help/about'
+#            label = QApplication.translate("settings", "About")
+#            command = 'inkcut.ui.about_inkcut'
+#         ActionItem:
+#             path = '/edit/undo'
+#             label = QApplication.translate("settings", "Undo")
+#             shortcut = 'Ctrl+Z'
+#             icon = menu_icon('arrow_undo')
+#             command = 'inkcut.ui.undo'
+#         ActionItem:
+#             path = '/edit/redo'
+#             label = QApplication.translate("settings", "Redo")
+#             shortcut = 'Ctrl+Y'
+#             icon = menu_icon('arrow_redo')
+#             command = 'inkcut.ui.redo'
