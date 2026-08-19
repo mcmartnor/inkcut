@@ -35,6 +35,7 @@ enamldef ConsoleManifest(PluginManifest):
 
     Extension:
         id = 'items'
+        rank = 110
         point = DOCK_ITEM_POINT
         DockItem:
             plugin_id = 'inkcut.console'
