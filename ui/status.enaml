@@ -19,8 +19,8 @@ enamldef StatusStrip(Container):
     attr active << bool(device and device.busy)
     padding = (6, 2, 6, 2)
     constraints = [
-        hbox(lbl_left, lbl_eta, spacer, prog, pb1, pb2),
-        align('v_center', lbl_left, lbl_eta, prog, pb1, pb2),
+        hbox(pb2, pb1, lbl_left, lbl_eta, spacer, prog),
+        align('v_center', pb2, pb1, lbl_left, lbl_eta, prog),
         prog.width >= 240,
     ]
     Label: lbl_left:
@@ -42,12 +42,12 @@ enamldef StatusStrip(Container):
         icon = load_icon('control_stop')
         clicked :: job.info.cancelled = True
     PushButton: pb2:
+        minimum_size = (160, 40)
         text << QApplication.translate("device", "Resume") if (job and job.info.paused and not job.info.cancelled) else (
-            QApplication.translate("device", "Pause") if active else QApplication.translate("device", "Send to device")
+            QApplication.translate("device", "Pause") if active else QApplication.translate("device", "Print")
         )
-        icon << load_icon('control_play' if ((job and job.info.paused)
-                            or not active)
-                          else 'control_pause')
+        icon << load_icon('control_play' if (job and job.info.paused and not job.info.cancelled)
+                          else ('control_pause' if active else 'printer'))
         clicked ::
             if device and device.busy:
                 job.info.paused = not job.info.paused
