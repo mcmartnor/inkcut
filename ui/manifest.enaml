@@ -46,9 +46,13 @@ def open_settings(event):
         from inkcut.ui.settings import SettingsDialog
     plugin = event.workbench.get_plugin('inkcut.ui')
     ui = event.workbench.get_plugin('enaml.workbench.ui')
-    SettingsDialog(ui.window,
-                      plugin=event.workbench.get_plugin(
-                          'inkcut.ui')).exec_()
+    page_id = event.parameters.get('plugin_id', '')
+    if page_id:
+        for page in plugin.settings_pages:
+            if page.plugin_id == page_id:
+                plugin.settings_page = page
+                break
+    SettingsDialog(ui.window, plugin=plugin).exec_()
 
 def settings_page_factory():
     with enaml.imports():
@@ -151,6 +155,24 @@ enamldef UIManifest(PluginManifest):
            path = '/settings/prefs'
            label = QApplication.translate("settings", "Settings...")
            command = 'inkcut.ui.open_settings'
+        ActionItem:
+            path = '/settings/job'
+            label = QApplication.translate("settings", "Job...")
+            after = 'prefs'
+            command = 'inkcut.ui.open_settings'
+            parameters = {'plugin_id': 'inkcut.job'}
+        ActionItem:
+            path = '/settings/preview'
+            label = QApplication.translate("settings", "Preview...")
+            after = 'job'
+            command = 'inkcut.ui.open_settings'
+            parameters = {'plugin_id': 'inkcut.preview'}
+        ActionItem:
+            path = '/settings/system'
+            label = QApplication.translate("settings", "System...")
+            after = 'preview'
+            command = 'inkcut.ui.open_settings'
+            parameters = {'plugin_id': 'inkcut.ui'}
         ActionItem:
             path = '/help/about'
             label = QApplication.translate("settings", "About")
