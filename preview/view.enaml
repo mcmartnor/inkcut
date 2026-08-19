@@ -10,7 +10,8 @@ Created on Dec 6, 2015
 @author: jrm
 """
 import textwrap
-from enaml.widgets.api import Container, Menu, Action, Feature
+from enaml.widgets.api import Container, Menu, Action, Feature, Label, PushButton
+from enaml.layout.api import hbox, spacer, align
 from enaml.qt.QtWidgets import QApplication
 from enaml.qt.qt_mime_data import QtMimeData
 
@@ -70,11 +71,40 @@ enamldef PreviewDockItem(DockItem):
 
     Container:
         padding = 0
+        Container: zoom_bar:
+            padding = 0
+            constraints = [
+                hbox(zo, zl, zi, marquee, spacer),
+                align('v_center', zo, zl, zi, marquee),
+            ]
+            PushButton: zo:
+                text = '-'
+                tool_tip = QApplication.translate("preview", "Zoom out")
+                clicked :: plot_view.proxy.set_zoom(plot_view.zoom_percent / 1.25)
+            Label: zl:
+                text << '{} %'.format(int(round(plot_view.zoom_percent)))
+                tool_tip = QApplication.translate(
+                    "preview", "Zoom level. 100% shows the full material width.")
+            PushButton: zi:
+                text = '+'
+                tool_tip = QApplication.translate("preview", "Zoom in")
+                clicked :: plot_view.proxy.set_zoom(plot_view.zoom_percent * 1.25)
+            PushButton: marquee:
+                checkable = True
+                icon = load_icon('magnifier')
+                tool_tip = QApplication.translate("preview", textwrap.dedent(
+                    """Marquee zoom: drag a box to zoom to it.
+                    While active, left-drag panning is disabled —
+                    toggle off to pan. Wheel zoom always works.""").strip())
         PlotView: plot_view:
             features = Feature.DropEnabled
             tool_tip = qtool_tip
             minimum_size = (360, None)
             data := preview.plot
+            zoom_base = lambda: (job_plugin.job.material.size[0]
+                                 if (job_plugin and job_plugin.job
+                                     and job_plugin.job.material) else 0.0)
+            mouse_mode << 'rect' if marquee.checked else 'pan'
             grid << (plugin.show_grid_x, plugin.show_grid_y)
             grid_alpha << plugin.grid_alpha/100.0
             axis_scales << {

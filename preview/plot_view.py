@@ -13,7 +13,7 @@ Created on Jun 11, 2015
 from atom.atom import set_default
 from atom.api import (
     Callable, Tuple, Float, List, ContainerList, Bool, FloatRange, Str,
-    Dict, Typed, ForwardTyped, observe
+    Dict, Typed, ForwardTyped, Enum, observe
 )
 from enaml.core.declarative import d_
 from enaml.qt.qt_application import QtApplication
@@ -122,6 +122,9 @@ class ProxyPlotView(ProxyControl):
     def set_zoom(self, percent):
         raise NotImplementedError
 
+    def set_mouse_mode(self, mode):
+        raise NotImplementedError
+
 
 class PlotView(Control):
     hug_width = set_default('ignore')
@@ -146,6 +149,7 @@ class PlotView(Control):
     zoom_percent = d_(Float(0.0))
     #: Leverandør av 100 %-grunnlaget (materialbredde i px). Settes av view.enaml.
     zoom_base = d_(Callable(lambda: 0.0))
+    mouse_mode = d_(Enum('pan', 'rect'))
 
     grid = d_(Tuple(item=Bool(), default=(False, False)))
     grid_alpha = d_(FloatRange(low=0.0, high=1.0, value=0.5))
@@ -153,7 +157,7 @@ class PlotView(Control):
     multi_axis = d_(Bool(True))
 
     @observe('data', 'title', 'labels', 'multi_axis', 'antialiasing',
-             'axis_scales', 'grid', 'grid_alpha')
+             'axis_scales', 'grid', 'grid_alpha', 'mouse_mode')
     def _update_proxy(self, change):
         """ An observer which sends state change to the proxy.
         """
@@ -176,6 +180,7 @@ class QtPlotView(QtControl, ProxyPlotView):
         #self.widget.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Expanding)
         self.set_data(d.data)
         self.set_antialiasing(d.antialiasing)
+        self.set_mouse_mode(d.mouse_mode)
         self.set_aspect_locked(d.aspect_locked)
         self.set_axis_scales(d.axis_scales)
         self.set_labels(d.labels)
@@ -191,7 +196,11 @@ class QtPlotView(QtControl, ProxyPlotView):
         if d is None:
             return
         x0, x1 = self.widget.plotItem.vb.viewRange()[0]
-        d.zoom_percent = zoom_percent_for_span(d.zoom_base(), x1 - x0)
+        try:
+            base = d.zoom_base()
+        except Exception:
+            return
+        d.zoom_percent = zoom_percent_for_span(base, x1 - x0)
 
     def set_zoom(self, percent):
         d = self.declaration
@@ -203,6 +212,10 @@ class QtPlotView(QtControl, ProxyPlotView):
         if rng is None:
             return
         vb.setRange(xRange=rng, padding=0)
+
+    def set_mouse_mode(self, mode):
+        vb = self.widget.plotItem.vb
+        vb.setMouseMode(ViewBox.RectMode if mode == 'rect' else ViewBox.PanMode)
 
     def set_title(self, title):
         self.set_labels(self.declaration.labels)
