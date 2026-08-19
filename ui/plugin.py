@@ -15,7 +15,8 @@ import importlib.metadata
 from datetime import datetime
 from atom.api import Atom, Int, List, Str, Instance, Bool, Enum, Dict
 from enaml.qt.q_resource_helpers import get_cached_qicon
-from enaml.layout.api import AreaLayout, DockBarLayout, HSplitLayout
+from enaml.layout.api import (AreaLayout, DockBarLayout, HSplitLayout,
+                              ItemLayout, TabLayout, VSplitLayout)
 from enaml.widgets.api import MenuBar
 from enaml.application import timed_call
 
@@ -28,6 +29,76 @@ with enaml.imports():
 
 
 ALL_STYLES = sorted(['system']+available_styles())
+
+
+#: Fixed placement of the production panels in the main dock area:
+#: (column weight, ((item name, row weight), ...)). Columns run left
+#: to right, rows top to bottom. The order here is PINNED — it does
+#: not follow extension rank or registration order. Any item NOT
+#: named here keeps the side its DockItem declaration requested
+#: (collapsed dock bars, as before).
+MAIN_COLUMNS = (
+    (22, (('material-item', 40), ('weedlines-item', 35),
+          ('layers-item', 25))),
+    (56, (('preview-item', 100),)),
+    (22, (('graphic-item', 55), ('joystick-item', 45))),
+)
+
+
+def build_dock_layout(layout):
+    """ Build the AreaLayout from a {side: [item names]} spec.
+
+    Known production panels form a fixed three column main area
+    (see MAIN_COLUMNS), everything else falls back to a dock bar
+    on its declared side. Unknown 'main' items become tabs behind
+    the preview so the column geometry survives.
+    """
+    layout = {side: list(items) for side, items in layout.items()}
+
+    def take(name):
+        for items in layout.values():
+            if name in items:
+                items.remove(name)
+                return name
+
+    columns = []
+    weights = []
+    center = None
+    for col_weight, rows in MAIN_COLUMNS:
+        found = [(name, w) for name, w in rows if take(name)]
+        if not found:
+            continue
+        if any(name == 'preview-item' for name, _ in found):
+            center = len(columns)
+        if len(found) == 1:
+            columns.append(ItemLayout(found[0][0]))
+        else:
+            column = VSplitLayout(*[n for n, _ in found])
+            column.sizes = [w for _, w in found]
+            columns.append(column)
+        weights.append(col_weight)
+
+    extra = [ItemLayout(n) for n in layout.pop('main', [])]
+    if extra:
+        if center is not None:
+            columns[center] = TabLayout(columns[center], *extra)
+        elif len(extra) > 1:
+            columns.append(TabLayout(*extra))
+            weights.append(56)
+        else:
+            columns.append(extra[0])
+            weights.append(56)
+
+    dock_bars = [DockBarLayout(*items, position=side)
+                 for side, items in layout.items() if items]
+
+    if not columns:
+        return AreaLayout(dock_bars=dock_bars)
+    if len(columns) == 1:
+        return AreaLayout(columns[0], dock_bars=dock_bars)
+    main = HSplitLayout(*columns)
+    main.sizes = weights
+    return AreaLayout(main, dock_bars=dock_bars)
 
 
 class Clock(Atom):
@@ -223,17 +294,7 @@ class InkcutPlugin(Plugin):
 
 
         """
-        items = layout.pop('main')
-        main = HSplitLayout(*items) if len(items) > 1 else items[0]
-
-        dockbars = [DockBarLayout(*items, position=side)
-                    for side, items in layout.items() if items]
-
-        #: Update layout
-        self.dock_layout = AreaLayout(
-            main,
-            dock_bars=dockbars
-        )
+        self.dock_layout = build_dock_layout(layout)
 
     # -------------------------------------------------------------------------
     # Settings page extension API
