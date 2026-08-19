@@ -326,14 +326,19 @@ enamldef GraphicDockItem(DockItem):
 
             Label:
                 text = QApplication.translate("job", "Graphic Mirroring")
-            CheckBox:
-                text = QApplication.translate("job", "Mirror about x-axis")
-                icon = load_icon('shape_flip_vertical')
-                checked := job.mirror[1]
-            CheckBox:
-                text = QApplication.translate("job", "Mirror about y-axis")
-                icon = load_icon('shape_flip_horizontal')
-                checked := job.mirror[0]
+            Container:
+                padding = 0
+                constraints = [hbox(mx, my, spacer)]
+                PushButton: mx:
+                    checkable = True
+                    icon = load_icon('shape_flip_vertical')
+                    tool_tip = QApplication.translate("job", "Mirror about x-axis")
+                    checked := job.mirror[1]
+                PushButton: my:
+                    checkable = True
+                    icon = load_icon('shape_flip_horizontal')
+                    tool_tip = QApplication.translate("job", "Mirror about y-axis")
+                    checked := job.mirror[0]
 
 
 enamldef WeedlinesDockItem(DockItem):
