@@ -27,6 +27,30 @@ from pyqtgraph.graphicsItems.AxisItem import AxisItem
 from pyqtgraph.graphicsItems.GraphicsObject import GraphicsObject
 
 
+def zoom_percent_for_span(base_width, x_span):
+    try:
+        base_width = float(base_width)
+        x_span = float(x_span)
+    except (TypeError, ValueError):
+        return 0.0
+    if base_width <= 0 or x_span <= 0:
+        return 0.0
+    return 100.0 * base_width / x_span
+
+
+def x_range_for_percent(base_width, percent, center):
+    try:
+        base_width = float(base_width)
+        percent = float(percent)
+        center = float(center)
+    except (TypeError, ValueError):
+        return None
+    if base_width <= 0 or percent <= 0:
+        return None
+    span = base_width * 100.0 / percent
+    return center - span / 2.0, center + span / 2.0
+
+
 class PainterPathPlotItem(PlotCurveItem):
 
     def updateData(self, path, **kargs):
@@ -95,6 +119,9 @@ class ProxyPlotView(ProxyControl):
     def set_antialiasing(self, enabled):
         raise NotImplementedError
 
+    def set_zoom(self, percent):
+        raise NotImplementedError
+
 
 class PlotView(Control):
     hug_width = set_default('ignore')
@@ -113,6 +140,12 @@ class PlotView(Control):
 
     antialiasing = d_(Bool(True))
     aspect_locked = d_(Bool(True))
+
+    #: Nåværende zoom i prosent av materialbredden. Skrives av proxyen
+    #: ved hver range-endring; kun for visning. IKKE i _update_proxy-lista.
+    zoom_percent = d_(Float(0.0))
+    #: Leverandør av 100 %-grunnlaget (materialbredde i px). Settes av view.enaml.
+    zoom_base = d_(Callable(lambda: 0.0))
 
     grid = d_(Tuple(item=Bool(), default=(False, False)))
     grid_alpha = d_(FloatRange(low=0.0, high=1.0, value=0.5))
@@ -149,6 +182,27 @@ class QtPlotView(QtControl, ProxyPlotView):
         self.widget.showGrid(d.grid[0], d.grid[1], d.grid_alpha)
 
         d.setup(self.widget)
+        self.widget.plotItem.vb.sigRangeChanged.connect(
+            self._on_range_changed)
+        self._on_range_changed()
+
+    def _on_range_changed(self, *args):
+        d = self.declaration
+        if d is None:
+            return
+        x0, x1 = self.widget.plotItem.vb.viewRange()[0]
+        d.zoom_percent = zoom_percent_for_span(d.zoom_base(), x1 - x0)
+
+    def set_zoom(self, percent):
+        d = self.declaration
+        base = d.zoom_base()
+        percent = max(1.0, min(6400.0, percent))
+        vb = self.widget.plotItem.vb
+        x0, x1 = vb.viewRange()[0]
+        rng = x_range_for_percent(base, percent, (x0 + x1) / 2.0)
+        if rng is None:
+            return
+        vb.setRange(xRange=rng, padding=0)
 
     def set_title(self, title):
         self.set_labels(self.declaration.labels)
