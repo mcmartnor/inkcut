@@ -33,7 +33,7 @@ enamldef JoystickDockItem(DockItem):
     Container:
         padding = 0
         constraints = [
-            hbox(directions, spacer, status),
+            vbox(directions, status),
             #align('v_center', lbl2, spb1),
             #align('v_center', lbl3, spb2),
             #align('v_center', lbl4, spb3),
@@ -65,17 +65,27 @@ enamldef JoystickDockItem(DockItem):
                     single_step = 10
                     value := plugin.rate
                 Label:
-                    text = QApplication.translate('control', "Status")
+                    text = QApplication.translate('control', 'Position')
                 Label:
-                    text << '%s: (x=%0.3f x y=%0.3f z=%s) %s: (x=%0.3f, y=%0.3f)  %s' % (
-                        QApplication.translate('control', 'Position'),
+                    text << QApplication.translate(
+                        'control', 'x=%0.3f  y=%0.3f  z=%s') % (
                         device.position[0],
                         device.position[1],
-                        device.position[2],
-                        QApplication.translate('control', 'Origin'),
+                        device.position[2]
+                    )
+                Label:
+                    text = QApplication.translate('control', 'Origin')
+                Label:
+                    text << QApplication.translate(
+                        'control', 'x=%0.3f  y=%0.3f') % (
                         device.origin[0],
-                        device.origin[1],
-                        QApplication.translate('control', 'busy' if device.busy else 'idle')
+                        device.origin[1]
+                    )
+                Label:
+                    text = QApplication.translate('control', 'State')
+                Label:
+                    text << QApplication.translate(
+                        'control', 'busy' if device.busy else 'idle'
                     )
 #
 
