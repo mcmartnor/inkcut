@@ -25,7 +25,10 @@ def device_setup(event):
     workbench = event.workbench
     ui = workbench.get_plugin('enaml.workbench.ui')
     plugin = workbench.get_plugin('inkcut.device')
-    DeviceDialog(ui.window, plugin=plugin).exec_()
+    tab = event.parameters.get('tab', '')
+    if tab not in ('general', 'device', 'connection', 'protocol', 'filters'):
+        tab = ''  # unknown/invalid value -> current default behavior
+    DeviceDialog(ui.window, plugin=plugin, initial_tab=tab).exec_()
 
 
 def device_reset_origin(event):
@@ -176,10 +179,44 @@ enamldef DeviceManifest(PluginManifest):
             command = 'inkcut.device.setup'
             icon = menu_icon('printer')
 
+        MenuItem:
+            path = '/device/settings'
+            label = QApplication.translate("device", "Settings")
+            after = 'setup'
+        ActionItem:
+            path = '/device/settings/general'
+            label = QApplication.translate("device", "General...")
+            command = 'inkcut.device.setup'
+            parameters = {'tab': 'general'}
+        ActionItem:
+            path = '/device/settings/device'
+            label = QApplication.translate("device", "Device...")
+            after = 'general'
+            command = 'inkcut.device.setup'
+            parameters = {'tab': 'device'}
+        ActionItem:
+            path = '/device/settings/connection'
+            label = QApplication.translate("device", "Connection...")
+            after = 'device'
+            command = 'inkcut.device.setup'
+            parameters = {'tab': 'connection'}
+        ActionItem:
+            path = '/device/settings/protocol'
+            label = QApplication.translate("device", "Protocol...")
+            after = 'connection'
+            command = 'inkcut.device.setup'
+            parameters = {'tab': 'protocol'}
+        ActionItem:
+            path = '/device/settings/filters'
+            label = QApplication.translate("device", "Filters...")
+            after = 'protocol'
+            command = 'inkcut.device.setup'
+            parameters = {'tab': 'filters'}
+
         ActionItem:
             path = '/device/calibrate'
             label = QApplication.translate("device", "Calibrate Cut...")
-            after = 'setup'
+            after = 'settings'
             command = 'inkcut.device.calibrate'
             icon = menu_icon('cut')
 

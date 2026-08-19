@@ -62,6 +62,7 @@ enamldef DeviceEditView(Notebook): notebook:
     tab_style = 'document'
     Page:
         title = QApplication.translate("device", "General")
+        name = 'general'
         closable = False
         Container:
             padding = 0
@@ -108,11 +109,13 @@ enamldef DeviceEditView(Notebook): notebook:
                     checked := device.custom
     Page:
         title = QApplication.translate("device", "Device")
+        name = 'device'
         closable = False
         ConfigEditView:
             configurable << device
     Page:
         title = QApplication.translate("device", "Connection")
+        name = 'connection'
         closable = False
         Container:
             padding = 0
@@ -154,6 +157,7 @@ enamldef DeviceEditView(Notebook): notebook:
 
     Page:
         title = QApplication.translate("device", "Protocol")
+        name = 'protocol'
         closable = False
         attr protocol << device.connection.protocol \
             if device and device.connection else None
@@ -182,6 +186,7 @@ enamldef DeviceEditView(Notebook): notebook:
                 configurable << protocol
     Page:
         title = QApplication.translate("device", "Filters")
+        name = 'filters'
         closable = False
         Container:
             padding = 0
@@ -242,6 +247,7 @@ enamldef DeviceDialog(Dialog): dialog:
     title = QApplication.translate("device", "Configure device")
     initial_size = (640, 320)
     attr plugin
+    attr initial_tab: str = ""
     activated :: btn_yes.set_focus()
     func remove_device(device):
         if device in plugin.devices and len(plugin.devices) > 1:
@@ -338,6 +344,7 @@ enamldef DeviceDialog(Dialog): dialog:
                         DeviceEditView:
                             plugin << dialog.plugin
                             device := plugin.device
+                            selected_tab = dialog.initial_tab
 
         TaskDialogCommandArea:
             constraints = [
