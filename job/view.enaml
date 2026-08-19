@@ -147,13 +147,13 @@ enamldef GraphicDockItem(DockItem):
                 text = QApplication.translate("job", "Lock aspect ratio")
                 checked := job.lock_scale
             Conditional:
-                #: Whole layout (all copies incl. spacing) — the per-copy
-                #: spinboxes above don't change when copies are stepped up.
+                #: Whole layout (all copies incl. spacing), shown as soon as
+                #: a document has a layout (final_size > 0).
                 #: Editable: typing a total scales the graphic by the
                 #: ratio; spacing is fixed and stacking may reflow, so the
                 #: field re-displays the actual resulting total after the
                 #: layout recomputes.
-                condition << job.copies > 1
+                condition << job.final_size[0] > 0 or job.final_size[1] > 0
                 Label:
                     text = QApplication.translate("job", "Total Size")
                 Form:
