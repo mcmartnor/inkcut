@@ -1,0 +1,175 @@
+"""Checkable Settings menu items that mirror plugin state.
+
+This manifest must be registered after InkcutPlugin.load_plugins() has
+registered every other manifest — see _register_settings_menu in
+inkcut/ui/plugin.py, which is the only place that should register it.
+
+The ``checked <<`` bindings below call get_plugin(), and enaml evaluates them
+during the synchronous menu rebuild that every register() call triggers.
+Declared inside one of the plugin manifests instead, the binding fires midway
+through the registration loop and brings back
+``ValueError: plugin 'inkcut.device' is not registered`` at startup.
+"""
+from enaml.core.api import Looper
+from enaml.qt.QtWidgets import QApplication
+from enaml.workbench.api import Extension, PluginManifest
+from enaml.workbench.core.api import Command
+from enaml.workbench.ui.api import ActionItem, ItemGroup, MenuItem
+
+
+UNITS = ['in', 'pt', 'px', 'mm', 'cm', 'm', 'km', 'pc', 'yd', 'ft']
+THEMES = ['grey-wind', 'metro', 'new-moon', 'system', 'vs-2024']
+LANGUAGES = ['English', 'French', 'German', 'system']
+
+
+def set_units(event):
+    plugin = event.workbench.get_plugin('inkcut.job')
+    value = event.parameters.get('units')
+    if value in plugin.get_member('units').items:
+        plugin.units = value
+
+
+def set_language(event):
+    plugin = event.workbench.get_plugin('inkcut.core')
+    value = event.parameters.get('language')
+    if value in plugin.get_member('language').items:
+        plugin.language = value
+
+
+def _set_bool(event, plugin_id, member):
+    plugin = event.workbench.get_plugin(plugin_id)
+    if 'value' in event.parameters:
+        value = event.parameters['value']
+    elif event.trigger is not None:
+        value = event.trigger.checked
+    else:
+        value = not getattr(plugin, member)
+    setattr(plugin, member, value)
+
+
+def toggle_dpi_auto_detect(event):
+    _set_bool(event, 'inkcut.job', 'dpi_auto_detect_inkscape')
+
+
+def toggle_grid_x(event):
+    _set_bool(event, 'inkcut.preview', 'show_grid_x')
+
+
+def toggle_grid_y(event):
+    _set_bool(event, 'inkcut.preview', 'show_grid_y')
+
+
+enamldef SettingsMenuManifest(PluginManifest):
+    id = 'inkcut.ui.settings_menu'
+
+    Extension:
+        id = 'commands'
+        point = 'enaml.workbench.core.commands'
+        Command:
+            id = 'inkcut.job.set_units'
+            handler = set_units
+        Command:
+            id = 'inkcut.core.set_language'
+            handler = set_language
+        Command:
+            id = 'inkcut.job.toggle_dpi_auto_detect'
+            handler = toggle_dpi_auto_detect
+        Command:
+            id = 'inkcut.preview.toggle_grid_x'
+            handler = toggle_grid_x
+        Command:
+            id = 'inkcut.preview.toggle_grid_y'
+            handler = toggle_grid_y
+
+    Extension:
+        id = 'actions'
+        point = 'enaml.workbench.ui.actions'
+        MenuItem:
+            path = '/settings/units'
+            label = QApplication.translate("settings", "Default Units")
+            after = 'system'
+            ItemGroup:
+                id = 'units_options'
+                exclusive = True
+        Looper:
+            iterable = UNITS
+            ActionItem:
+                path = '/settings/units/{}'.format(loop_item)
+                group = 'units_options'
+                label = loop_item
+                command = 'inkcut.job.set_units'
+                parameters = {'units': loop_item}
+                checkable = True
+                checked << workbench.get_plugin('inkcut.job').units == loop_item
+        MenuItem:
+            path = '/settings/theme'
+            label = QApplication.translate(
+                "settings", "Theme (requires restart)")
+            after = 'units'
+            ItemGroup:
+                id = 'theme_options'
+                exclusive = True
+        # The existing set_theme handler safely falls back to 'system' when
+        # its parameter is missing, so theme intentionally has no Enum check.
+        Looper:
+            iterable = THEMES
+            ActionItem:
+                path = '/settings/theme/{}'.format(loop_item)
+                group = 'theme_options'
+                label = loop_item.replace("-", " ").title()
+                command = 'inkcut.ui.set_theme'
+                parameters = {'theme': loop_item}
+                checkable = True
+                checked << workbench.get_plugin('inkcut.ui').dock_style == loop_item
+                tool_tip = QApplication.translate(
+                    "settings", "You must restart for this to apply!")
+        MenuItem:
+            path = '/settings/language'
+            label = QApplication.translate(
+                "settings", "Language (requires restart)")
+            after = 'theme'
+            ItemGroup:
+                id = 'language_options'
+                exclusive = True
+        Looper:
+            iterable = LANGUAGES
+            ActionItem:
+                path = '/settings/language/{}'.format(loop_item)
+                group = 'language_options'
+                label = loop_item.replace("-", " ").title()
+                command = 'inkcut.core.set_language'
+                parameters = {'language': loop_item}
+                checkable = True
+                checked << workbench.get_plugin('inkcut.core').language == loop_item
+                tool_tip = QApplication.translate(
+                    "settings", "You must restart for this to apply!")
+        ActionItem:
+            path = '/settings/dpi_auto'
+            label = QApplication.translate(
+                "settings", "Auto-detect Inkscape DPI")
+            after = 'language'
+            command = 'inkcut.job.toggle_dpi_auto_detect'
+            checkable = True
+            checked << workbench.get_plugin(
+                'inkcut.job').dpi_auto_detect_inkscape
+            tool_tip = QApplication.translate(
+                "settings",
+                "Use 96DPI for Inkscape 0.92 and above, or 90dpi for older versions.\n"
+                "Inkscape version is detected based on the 'inkscape:version' tag found\n"
+                "in the root <svg> element of the document.  Overrides default DPI\n"
+                "if Inkscape document is detected.  Changing this requires closing and\n"
+                "re-opening the working document.")
+        ActionItem:
+            path = '/settings/grid_x'
+            label = QApplication.translate("settings", "Show Grid X")
+            after = 'dpi_auto'
+            command = 'inkcut.preview.toggle_grid_x'
+            checkable = True
+            checked << workbench.get_plugin('inkcut.preview').show_grid_x
+        ActionItem:
+            path = '/settings/grid_y'
+            label = QApplication.translate("settings", "Show Grid Y")
+            after = 'grid_x'
+            command = 'inkcut.preview.toggle_grid_y'
+            checkable = True
+            checked << workbench.get_plugin('inkcut.preview').show_grid_y

@@ -163,6 +163,32 @@ class InkcutPlugin(Plugin):
         self._refresh_dock_items()
         self._refresh_settings_pages()
         super(InkcutPlugin, self).start()
+        self._register_settings_menu()
+
+    def _register_settings_menu(self):
+        """ Register the checkable Settings menu items.
+
+        Must run after load_plugins(). The menu bindings call get_plugin(),
+        and enaml evaluates them while the menus are rebuilt — which happens
+        synchronously inside every register() call. Declared in one of the
+        plugin manifests, the binding therefore fires midway through the
+        registration loop, starts the job plugin, and its state restore looks
+        up a device plugin whose manifest is still queued:
+        "ValueError: plugin 'inkcut.device' is not registered".
+
+        Both boundaries are measured, not assumed. Called before
+        load_plugins() this raises "plugin 'inkcut.job' is not registered" and
+        the menu is left broken; called anywhere after it, it works. It sits
+        last in start() for margin, not because the plugins need to be
+        started — they only need to be registered.
+
+        """
+        w = self.workbench
+        if w.get_manifest('inkcut.ui.settings_menu') is not None:
+            return  # workspace restarted; already registered
+        with enaml.imports():
+            from inkcut.ui.settings_menu import SettingsMenuManifest
+        w.register(SettingsMenuManifest())
 
     def load_plugins(self):
         """ Load all the plugins Inkcut is dependent on """
