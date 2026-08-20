@@ -331,11 +331,13 @@ enamldef GraphicDockItem(DockItem):
                 constraints = [hbox(mx, my, spacer)]
                 PushButton: mx:
                     checkable = True
+                    text = QApplication.translate("job", "Flip Vertical")
                     icon = load_icon('shape_flip_vertical')
                     tool_tip = QApplication.translate("job", "Mirror about x-axis")
                     checked := job.mirror[1]
                 PushButton: my:
                     checkable = True
+                    text = QApplication.translate("job", "Flip Horizontal")
                     icon = load_icon('shape_flip_horizontal')
                     tool_tip = QApplication.translate("job", "Mirror about y-axis")
                     checked := job.mirror[0]
