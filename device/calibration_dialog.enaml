@@ -73,6 +73,10 @@ enamldef CalibrateDialog(Dialog): dialog:
         if device:
             try:
                 save_offset_mm(device, plugin.filters, dialog.offset_mm)
+                #: Without this the calibration lives only in memory and is
+                #: gone at the next start — the plugin observes its own config
+                #: members, not a nested change on the device's filter list.
+                plugin.save()
             except Exception as e:
                 workbench.message_critical(
                     QApplication.translate("calibration", "Calibrate Cut"),
@@ -129,6 +133,9 @@ enamldef CalibrateDialog(Dialog): dialog:
             PushButton:
                 text = QApplication.translate(
                     "calibration", "Make a test cut")
+                #: Grey it out while the cutter works, so an impatient second
+                #: click cannot queue a cut that starts after the wizard closes.
+                enabled << not (plugin.device and plugin.device.busy)
                 clicked :: make_test_cut()
             Label:
                 text = QApplication.translate(

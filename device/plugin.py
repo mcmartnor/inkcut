@@ -1078,6 +1078,17 @@ class Device(Model):
             if job.feed_to_end and job.info.status == 'complete':
                 self.origin = [0, 0, 0]
                 self.position = [0, 0, 0]
+            else:
+                #: Whatever else happened, the pen is not down any more.
+                #: process() marks every cut point z=1 and move() stores the
+                #: whole triple, so a cancelled or failed job leaves z=1 in
+                #: self.position. The jog buttons read that triple and pass z
+                #: straight into an absolute move (joystick/plugin.py), which
+                #: would drag the knife across the material on the next nudge.
+                #: Only z is cleared — x and y still say where the head is.
+                p = self.position
+                if len(p) > 2 and p[2]:
+                    self.position = [p[0], p[1], 0]
 
             #: If the user didn't cancel, set the origin and
             #: Process any jobs that entered the queue while this was running

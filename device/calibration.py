@@ -150,8 +150,25 @@ def submit_test_cut(plugin, workbench, offset_mm):
             "Calibrate Cut",
             "No device is set up. Use Device > Setup first.")
         return False
+
+    #: A second test cut while the first is still running does not run — it is
+    #: appended to the device queue and started a minute after the current job
+    #: ends (device/plugin.py). By then the wizard may be closed and the user
+    #: away from the machine, so the cutter would run unattended over the cut
+    #: that is already there. Refuse instead, and say why.
+    if device.busy:
+        workbench.message_warning(
+            "Calibrate Cut",
+            "The cutter is still running the previous test cut. Wait for it "
+            "to finish before taking another one.")
+        return False
+
     try:
         save_offset_mm(device, plugin.filters, offset_mm)
+        #: save_offset_mm only mutates device.filters, and the plugin observes
+        #: its own config members — not nested ones — so nothing is written to
+        #: disk without this call.
+        plugin.save()
     except Exception as e:
         workbench.message_critical("Calibrate Cut", str(e))
         return False
