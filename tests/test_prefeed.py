@@ -11,17 +11,30 @@ after a feed-to-end job the origin sits past the previous cut, and the feed
 must never rewind to absolute zero.
 """
 import math
-import os
 
-os.environ["QT_QPA_PLATFORM"] = "offscreen"
+import pytest
 
 from atom.api import Bool as ABool
 from atom.api import Instance as AInstance
 from atom.api import Value
-from enaml.qt.QtGui import QGuiApplication, QPainterPath
+from enaml.qt.QtGui import QPainterPath
+from enaml.qt.QtWidgets import QApplication
 
-# QPainterPath and Device instantiation require an application in headless CI.
-APP = QGuiApplication.instance() or QGuiApplication([])
+
+@pytest.fixture(scope="session", autouse=True)
+def qt_app():
+    """ QPainterPath and Device instantiation need a Qt application.
+
+    Created lazily rather than at import time: pytest imports every test
+    module before running any test, and a bare QGuiApplication created
+    during collection would prevent test_app from constructing the
+    QApplication that inkcut.app.main() needs.
+
+    """
+    app = QApplication.instance()
+    if app is None:
+        app = QApplication([])
+    return app
 
 from inkcut.core.api import Model
 from inkcut.core.utils import from_unit
