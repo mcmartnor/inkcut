@@ -82,7 +82,7 @@ WEDGED_PIPE_MSG = ("The cutter is not accepting data (wedged USB pipe). "
 #: Immutable snapshot of the config values the connect worker needs, so
 #: the worker thread never reads live Atom members that the UI can edit
 #: concurrently
-UsbParams = namedtuple('UsbParams', 'vid pid endpoint cdc_init baud')
+UsbParams = namedtuple('UsbParams', 'vid pid endpoint cdc_init baud chunk_size')
 
 
 def cdc_line_coding(baud):
@@ -120,6 +120,11 @@ class UsbTransport(DeviceTransport):
 
     #: The pyusb device handle
     _dev = Value()
+
+    #: Frozen copy of the config the workers run against. Set on the
+    #: reactor thread by connect(); read by the writer and keepalive
+    #: threads so a config edit mid-job cannot change them under way.
+    _params = Value()
 
     #: Serializes all USB access between writes and the keepalive thread
     _lock = Value(factory=threading.Lock)
@@ -296,7 +301,10 @@ class UsbTransport(DeviceTransport):
                 continue
             try:
                 dev = self._dev
-                if dev is None or not self.config.cdc_init:
+                p = self._params
+                cdc_init = (p.cdc_init if p is not None
+                            else self.config.cdc_init)
+                if dev is None or not cdc_init:
                     continue
                 try:
                     dev.ctrl_transfer(0x21, 0x22, 0x03, 0, None, timeout=2000)
@@ -327,7 +335,9 @@ class UsbTransport(DeviceTransport):
         #: Snapshot everything the worker needs on the reactor thread —
         #: the worker must not read live Atom config the UI can edit
         c = self.config
-        params = UsbParams(c.vid, c.pid, c.endpoint, c.cdc_init, c.baud)
+        params = UsbParams(c.vid, c.pid, c.endpoint, c.cdc_init, c.baud,
+                           c.chunk_size)
+        self._params = params
         #: disconnect() bumps _generation to cancel this attempt; the
         #: callbacks below then refuse to complete and instead clean up
         gen = self._generation
@@ -698,8 +708,11 @@ class UsbTransport(DeviceTransport):
         keepalive and disconnect() can always interleave. Returns False
         when cancelled via `stop`.
         """
-        ep = self.config.endpoint
-        step = max(1, self.config.chunk_size)
+        #: Never the live Atom config: the UI can edit it mid-job
+        p = self._params
+        ep = p.endpoint if p is not None else self.config.endpoint
+        step = max(1, p.chunk_size if p is not None
+                   else self.config.chunk_size)
         last_progress = time.monotonic()
         stall_logged = last_progress
         for i in range(0, len(data), step):
