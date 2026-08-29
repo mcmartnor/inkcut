@@ -17,6 +17,7 @@ import os
 import hashlib
 import shutil
 import subprocess
+import sys
 import tempfile
 
 from inkcut.core.api import log
@@ -27,7 +28,16 @@ CACHE_DIR = os.path.expanduser('~/.config/inkcut/imports')
 
 #: GUI apps launched from Finder/Dock on macOS do not inherit the shell
 #: PATH, so Homebrew and MacPorts locations must be searched explicitly.
+#: Harmless elsewhere: these are only tried after shutil.which() fails.
 EXTRA_PATHS = ('/opt/homebrew/bin', '/usr/local/bin', '/opt/local/bin')
+
+#: Per-platform hint for installing poppler, used only in the error
+#: raised when neither converter is present.
+POPPLER_HINTS = {
+    'darwin': 'brew install poppler',
+    'linux': 'apt install poppler-utils (or dnf install poppler-utils)',
+    'win32': 'install poppler and add its bin directory to PATH',
+}
 
 IMPORTABLE_EXTENSIONS = ('.pdf', '.ai')
 
@@ -154,9 +164,10 @@ def convert_to_svg_info(path):
     pdftocairo = _find_tool('pdftocairo')
     inkscape = _find_tool('inkscape')
     if not pdftocairo and not inkscape:
+        hint = POPPLER_HINTS.get(sys.platform, POPPLER_HINTS['linux'])
         raise JobError(
             "Importing PDF/AI files requires poppler or Inkscape. "
-            "Install poppler with: brew install poppler")
+            "Install poppler with: %s" % hint)
 
     #: Unique temp file in the cache dir: a fixed name would race
     #: between concurrent Inkcut processes converting the same document
