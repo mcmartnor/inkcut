@@ -107,8 +107,17 @@ class RawFdTransport(DeviceTransport):
             # self.fd; give it a moment, then close whatever it leaked.
             # Capture the fd NOW: by the time the callback fires a new
             # connection may have installed a fresh self.fd.
-            from twisted.internet import reactor
-            reactor.callLater(1.0, self._close_leaked_fd, self.fd)
+            #
+            # Scheduled on the Qt event loop, not the reactor: inkcut
+            # installs qreactor but never starts it, so reactor.callLater
+            # would never fire and the descriptor would leak anyway.
+            # Without an application (cli/tests) there is no loop to wait
+            # on, so close inline instead.
+            from enaml.application import Application, timed_call
+            if Application.instance() is not None:
+                timed_call(1000, self._close_leaked_fd, self.fd)
+            else:
+                self._close_leaked_fd(self.fd)
         else:
             self._close_leaked_fd(self.fd)
         # connectionLost may never fire if the reader side is already gone
