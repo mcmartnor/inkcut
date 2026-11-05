@@ -910,11 +910,13 @@ enamldef MaterialDockItem(DockItem):
         padding = 0
         PanelScroll:
             Container:
-                Container:
+                SectionHeader: h_area:
+                    name = 'section-plot-area'
+                    title = QApplication.translate("job", "Plot Area")
+                Section:
+                    visible << h_area.expanded
                     padding = 0
 
-                    Label:
-                        text = QApplication.translate("job", "Plot Area")
                     Form:
                         padding = 0
                         ImageView:
@@ -946,11 +948,13 @@ enamldef MaterialDockItem(DockItem):
 #                        except NotImplementedError:
 #                            pass
 
-                Container:
+                SectionHeader: h_margins:
+                    name = 'section-plot-margins'
+                    title = QApplication.translate("job", "Plot Margins")
+                Section:
+                    visible << h_margins.expanded
                     padding = 0
 
-                    Label:
-                        text = QApplication.translate("job", "Plot Margins")
                     Form:
                         padding = 0
                         ImageView:
@@ -985,11 +989,13 @@ enamldef MaterialDockItem(DockItem):
                             suffix << " "+plugin.units
                             maximum = 99999.9
                             single_step = 0.1
-                Container:
+                SectionHeader: h_alignment:
+                    name = 'section-plot-alignment'
+                    title = QApplication.translate("job", "Plot Alignment")
+                Section:
+                    visible << h_alignment.expanded
                     padding = 0
 
-                    Label:
-                        text = QApplication.translate("job", "Plot Alignment")
                     CheckBox:
                         visible << not job.items
                         text = QApplication.translate("job", 'Shift to origin')
@@ -1010,16 +1016,17 @@ enamldef MaterialDockItem(DockItem):
                         icon = load_icon('shape_square_width')
                         checked := job.clip_to_plot_area
 
-                Container:
+                SectionHeader: h_feeding:
+                    name = 'section-plot-feeding'
+                    title = QApplication.translate("job", "Plot Feeding")
+                Section:
+                    visible << h_feeding.expanded
                     padding = 0
                     constraints = [
-                        vbox(lbl,
-                             rb1,
+                        vbox(rb1,
                              hbox(rb2,dsb)),
                         align('v_center',rb2,dsb)
                     ]
-                    Label: lbl:
-                        text = QApplication.translate("job", "Plot Feeding")
                     RadioButton: rb1:
                         text = QApplication.translate("job", "Return to origin")
                         checked << not job.feed_to_end
