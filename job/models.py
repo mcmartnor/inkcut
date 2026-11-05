@@ -13,6 +13,7 @@ Created on Jan 16, 2015
 from __future__ import division
 import os
 import sys
+import math
 import uuid
 import re
 from copy import deepcopy
@@ -153,10 +154,19 @@ class JobItem(Model):
     position = ContainerList(Float(), default=[0, 0]).tag(config=True)
     weedline = Bool(False).tag(config=True)
     rotation = Int(0).tag(config=True)
+    scale = ContainerList(Float(), default=[1.0, 1.0]).tag(config=True)
+    lock_scale = Bool(True).tag(config=True)
+    mirror = ContainerList(Bool(), default=[False, False]).tag(config=True)
+    #: [] = use the job's item_weedline_padding; else left, top, right, bottom
+    weedline_padding = ContainerList(Float(), default=[]).tag(config=True)
+    copies = Int(1).tag(config=True)
+    #: Content size of one transformed copy, without frame (set by the Job)
+    size = ContainerList(Float(), default=[0.0, 0.0])
     missing = Bool(False)
     _invalid = Bool(False)
     _loaded = Bool(False)
     _doc = Instance(QtSvgDoc)
+    _last_valid = Dict()
 
     def _default_uid(self):
         return uuid.uuid4().hex[:8]
@@ -175,6 +185,36 @@ class JobItem(Model):
             rotation = 0
         if self.rotation != rotation:
             self.rotation = rotation
+
+    _DEFAULTS = {'scale': [1.0, 1.0], 'mirror': [False, False],
+                 'weedline_padding': [], 'copies': 1}
+
+    def _validate(self, name, valid):
+        value = getattr(self, name)
+        try:
+            ok = valid(value)
+        except Exception:
+            ok = False
+        if ok:
+            self._last_valid[name] = deepcopy(value)
+            return
+        restore = self._last_valid.get(name, self._DEFAULTS[name])
+        log.warning("Invalid item %s %s; using %s", name, value, restore)
+        setattr(self, name, deepcopy(restore))
+
+    def _observe_scale(self, change):
+        self._validate('scale', lambda v: len(v) == 2 and all(
+            math.isfinite(x) and x > 0 for x in v))
+
+    def _observe_mirror(self, change):
+        self._validate('mirror', lambda v: len(v) == 2)
+
+    def _observe_weedline_padding(self, change):
+        self._validate('weedline_padding', lambda v: len(v) in (0, 4) and all(
+            math.isfinite(x) and x >= 0 for x in v))
+
+    def _observe_copies(self, change):
+        self._validate('copies', lambda v: v >= 1)
 
     def load(self, **kwargs):
         """Parse once, or after document changes / explicit reload."""
@@ -199,7 +239,9 @@ class JobItem(Model):
         t = QTransform()
         c = doc.boundingRect().center()
         t.translate(c.x(), c.y())
+        t.scale(-1 if self.mirror[0] else 1, -1 if self.mirror[1] else 1)
         t.rotate(self.rotation if rotation is None else rotation)
+        t.scale(self.scale[0], self.scale[1])
         t.translate(-c.x(), -c.y())
         return t, t.map(doc).boundingRect()
 
@@ -229,6 +271,10 @@ class Job(Model):
     item_snap_grid = Float(3.5433).tag(config=True)
     layout_transform = Instance(QTransform)
     layout_problems = List()
+    #: uid of the selected item ('' = none); shared by preview and panel
+    selected_uid = Str()
+    #: Union of the outer bounds of all valid items (layout frame)
+    layout_size = ContainerList(Float(), default=[0.0, 0.0])
     _watched_items = List()
     _items_batch = Int()
     _items_dirty = Bool()
@@ -420,7 +466,8 @@ class Job(Model):
     def _observe_items(self, change):
         if change['type'] == 'create' and not self.items:
             return
-        names = ('position', 'weedline', 'rotation', 'document', 'source_document')
+        names = ('position', 'weedline', 'rotation', 'document', 'source_document',
+                 'scale', 'mirror', 'copies', 'weedline_padding')
         for item in self._watched_items:
             for name in names:
                 item.unobserve(name, self._request_composition)
@@ -434,6 +481,8 @@ class Job(Model):
             for name in names:
                 item.observe(name, self._request_composition)
         self._watched_items = list(self.items)
+        if self.selected_uid and self.selected_uid not in seen:
+            self.selected_uid = ''
         if self.items:
             self._composing = True
             try:
@@ -446,6 +495,35 @@ class Job(Model):
     def _observe_item_weedline_padding(self, change):
         if self.items:
             self._request_composition()
+
+    def _observe_item_spacing(self, change):
+        if change['type'] == 'update' and self.items:
+            self._request_composition()
+
+    def item_padding(self, item):
+        """Effective frame padding (left, top, right, bottom) of an item."""
+        if len(item.weedline_padding) == 4:
+            return list(item.weedline_padding)
+        return list(self.item_weedline_padding)
+
+    def item_copy_offsets(self, item, rotation=None):
+        """Offsets (dx, dy) of the item's copies, layout frame (rows go up)."""
+        copies = item.copies
+        if copies <= 1 or item.load(**self.item_dpi_kwargs()) is None:
+            return [(0.0, 0.0)]
+        _, bbox = item.rotated_geometry(rotation)
+        cell_w, cell_h = bbox.width(), bbox.height()
+        if item.weedline:
+            left, top, right, bottom = self.item_padding(item)
+            cell_w, cell_h = cell_w + left + right, cell_h + top + bottom
+        s = max(0, self.item_spacing)
+        area_w = self.material.available_area.width()
+        if area_w <= 0 or cell_w + s <= 0:
+            cols = copies
+        else:
+            cols = max(1, min(copies, int(math.floor((area_w + s) / (cell_w + s)))))
+        return [(float((k % cols) * (cell_w + s)), float((k // cols) * (cell_h + s)))
+                for k in range(copies)]
 
     def reload_items(self):
         for item in self.items:
@@ -465,9 +543,13 @@ class Job(Model):
         x, y = item.position
         w, h = bbox.width(), bbox.height()
         if outer and item.weedline:
-            left, top, right, bottom = self.item_weedline_padding
+            left, top, right, bottom = self.item_padding(item)
             x, y = x - left, y - bottom
             w, h = w + left + right, h + top + bottom
+        if item.copies > 1:
+            offsets = self.item_copy_offsets(item, rotation)
+            w += max(dx for dx, _ in offsets)
+            h += max(dy for _, dy in offsets)
         return QRectF(x, y, w, h)
 
     def layout_problem_text(self, problems):
@@ -499,13 +581,23 @@ class Job(Model):
     def _update_layout_problems(self):
         problems, bounds = [], []
         area = self.material.available_area
+        union = None
         for item in self.items:
             if item.missing or item._invalid:
+                if list(item.size) != [0.0, 0.0]:
+                    item.size = [0.0, 0.0]
                 problems.append((item.uid, 'missing' if item.missing else 'invalid'))
                 continue
             rect = self.item_bounds(item)
             if rect is None:
+                if list(item.size) != [0.0, 0.0]:
+                    item.size = [0.0, 0.0]
                 continue
+            _, bbox = item.rotated_geometry()
+            size = [bbox.width(), bbox.height()]
+            if list(item.size) != size:
+                item.size = size
+            union = rect if union is None else self._union(union, rect)
             eps = 1e-6  # snapped edges may be off by a few ulp
             if (rect.left() < -eps or rect.top() < -eps or
                     rect.right() > area.width() + eps or
@@ -519,7 +611,17 @@ class Job(Model):
                         max(a.top(), b.top()) < min(a.bottom(), b.bottom())):
                     overlaps.update((uid, other))
         problems.extend((item.uid, 'overlap') for item in self.items if item.uid in overlaps)
+        layout_size = [union.width(), union.height()] if union is not None else [0.0, 0.0]
+        if list(self.layout_size) != layout_size:
+            self.layout_size = layout_size
         self.layout_problems = problems
+
+    @staticmethod
+    def _union(a, b):
+        """Union that also keeps zero-width/-height rects (QRectF.united skips null)."""
+        left, top = min(a.left(), b.left()), min(a.top(), b.top())
+        return QRectF(left, top, max(a.right(), b.right()) - left,
+                      max(a.bottom(), b.bottom()) - top)
 
     @observe('material', 'material.size', 'material.padding')
     def _layout_area_changed(self, change):
@@ -555,41 +657,55 @@ class Job(Model):
                     continue
                 valid += 1
                 rotation, bbox = item.rotated_geometry()
-                source = deepcopy(doc._e)
-                source.tag = '{%s}g' % ns
-                for name in ('width', 'height', 'viewBox', 'x', 'y',
-                             'preserveAspectRatio', 'version'):
-                    source.attrib.pop(name, None)
-                source.set('transform', self._svg_matrix(doc.parseTransform(doc._e)))
-                ids = {e.get('id'): item.uid + '-' + e.get('id')
-                       for e in source.iter() if e.get('id') is not None}
-                for e in source.iter():
-                    if e.get('id') in ids:
-                        e.set('id', ids[e.get('id')])
-                    for name, value in list(e.attrib.items()):
-                        if name in ('href', '{http://www.w3.org/1999/xlink}href'):
-                            if value.startswith('#') and value[1:] in ids:
-                                value = '#' + ids[value[1:]]
-                        value = re.sub(r'url\(\s*([\'"]?)#([^\s)\'"]+)\1\s*\)',
-                                       lambda m: 'url(#%s)' % ids.get(m[2], m[2]), value)
-                        e.set(name, value)
-                    if (e.tag == '{%s}g' % ns and e.get(ink + 'groupmode') == 'layer'
-                            and e.get(ink + 'label')):
-                        e.set(ink + 'label', '%s [%s] / %s' %
-                              (item, item.uid, e.get(ink + 'label', '')))
+
+                def prepared(prefix, doc=doc, item=item):
+                    source = deepcopy(doc._e)
+                    source.tag = '{%s}g' % ns
+                    for name in ('width', 'height', 'viewBox', 'x', 'y',
+                                 'preserveAspectRatio', 'version'):
+                        source.attrib.pop(name, None)
+                    source.set('transform', self._svg_matrix(doc.parseTransform(doc._e)))
+                    ids = {e.get('id'): prefix + e.get('id')
+                           for e in source.iter() if e.get('id') is not None}
+                    for e in source.iter():
+                        if e.get('id') in ids:
+                            e.set('id', ids[e.get('id')])
+                        for name, value in list(e.attrib.items()):
+                            if name in ('href', '{http://www.w3.org/1999/xlink}href'):
+                                if value.startswith('#') and value[1:] in ids:
+                                    value = '#' + ids[value[1:]]
+                            value = re.sub(r'url\(\s*([\'"]?)#([^\s)\'"]+)\1\s*\)',
+                                           lambda m: 'url(#%s)' % ids.get(m[2], m[2]), value)
+                            e.set(name, value)
+                        if (e.tag == '{%s}g' % ns and e.get(ink + 'groupmode') == 'layer'
+                                and e.get(ink + 'label')):
+                            e.set(ink + 'label', '%s [%s] / %s' %
+                                  (item, item.uid, e.get(ink + 'label', '')))
+                    return source
+
                 placement = QTransform.fromTranslate(item.position[0] - bbox.left(),
                                                       -item.position[1] - bbox.bottom())
                 outer = etree.SubElement(root, '{%s}g' % ns,
                                          transform=self._svg_matrix(placement))
-                content = etree.SubElement(outer, '{%s}g' % ns,
-                                           transform=self._svg_matrix(rotation))
-                content.append(source)
-                if item.weedline:
-                    left, top, right, bottom = self.item_weedline_padding
-                    etree.SubElement(outer, '{%s}rect' % ns,
-                                     x=str(bbox.left() - left), y=str(bbox.top() - top),
-                                     width=str(bbox.width() + left + right),
-                                     height=str(bbox.height() + top + bottom))
+                offsets = self.item_copy_offsets(item)
+                for k, (dx, dy) in enumerate(offsets):
+                    if len(offsets) == 1:
+                        parent, prefix = outer, item.uid + '-'
+                    else:
+                        parent = etree.SubElement(
+                            outer, '{%s}g' % ns,
+                            transform='translate(%s, %s)' % (format(dx, '.17g'),
+                                                             format(-dy, '.17g')))
+                        prefix = item.uid + ('.c%d' % k if k else '') + '-'
+                    content = etree.SubElement(parent, '{%s}g' % ns,
+                                               transform=self._svg_matrix(rotation))
+                    content.append(prepared(prefix))
+                    if item.weedline:
+                        left, top, right, bottom = self.item_padding(item)
+                        etree.SubElement(parent, '{%s}rect' % ns,
+                                         x=str(bbox.left() - left), y=str(bbox.top() - top),
+                                         width=str(bbox.width() + left + right),
+                                         height=str(bbox.height() + top + bottom))
             if valid:
                 self.doc = self.path = QtSvgDoc(root, parent=True, **self.item_dpi_kwargs())
                 self.svg_filters = self._default_svg_filters()
@@ -609,8 +725,11 @@ class Job(Model):
     def arrange_items(self, items=None):
         """Pack outer bounds from the anchor; appended items go above existing ones."""
         selected = list(self.items if items is None else items)
-        bases = {item.uid: (item.rotation if item.rotation % 180 == 0
-                            else item.rotation - 90) for item in selected}
+        if self.item_allow_rotation:
+            bases = {item.uid: (item.rotation if item.rotation % 180 == 0
+                                else item.rotation - 90) for item in selected}
+        else:
+            bases = {item.uid: item.rotation for item in selected}
         bounds = [(item, self.item_bounds(item, rotation=bases[item.uid]))
                   for item in selected]
         bounds = [(item, rect) for item, rect in bounds if rect is not None]
@@ -646,11 +765,97 @@ class Job(Model):
                 if item.rotation != rotation:
                     item.rotation = rotation
                 if item.weedline:
-                    x += self.item_weedline_padding[Padding.LEFT]
-                    y += self.item_weedline_padding[Padding.BOTTOM]
+                    padding = self.item_padding(item)
+                    x += padding[Padding.LEFT]
+                    y += padding[Padding.BOTTOM]
                 position = [float(x), float(y)]
                 if item.position != position:
                     item.position = position
+
+    def set_item_rotation(self, item, rotation):
+        """Rotate an item (0/90/180/270) keeping its content block centre."""
+        rotation = int(rotation) % 360
+        if rotation not in (0, 90, 180, 270):
+            raise ValueError("Unsupported rotation %s" % rotation)
+        rect = self.item_bounds(item, outer=False)
+        if rect is None:
+            return
+        new = self.item_bounds(item, outer=False, rotation=rotation)
+        position = [round(rect.center().x() - new.width() / 2, 9),
+                    round(rect.center().y() - new.height() / 2, 9)]
+        with self.batch_items():
+            item.rotation = rotation
+            if item.position != position:
+                item.position = position
+
+    def _valid_layout_items(self):
+        return [item for item in self.items
+                if self.item_bounds(item) is not None
+                and not item.missing and not item._invalid]
+
+    def _measure_layout(self, items):
+        union = None
+        for item in items:
+            rect = self.item_bounds(item)
+            union = rect if union is None else self._union(union, rect)
+        return [union.width(), union.height()]
+
+    def scale_layout(self, target_w=None, target_h=None):
+        """Scale all valid items by one factor so the layout gets the target size.
+
+        The content anchor (lowest left/bottom content edge) stays fixed.
+        """
+        if (target_w is None) == (target_h is None):
+            raise ValueError("Give exactly one of target_w and target_h")
+        axis = 0 if target_w is not None else 1
+        target = float(target_w if axis == 0 else target_h)
+        if not math.isfinite(target) or target <= 0:
+            raise ValueError("The layout size must be larger than 0")
+        items = self._valid_layout_items()
+        if not items:
+            raise ValueError("No graphics to scale")
+        now = self._measure_layout(items)[axis]
+        if not math.isfinite(now) or now <= 0:
+            raise ValueError("The layout has no size in this direction")
+        inner = [self.item_bounds(item, outer=False) for item in items]
+        anchor = (min(r.left() for r in inner), min(r.top() for r in inner))
+        snapshot = [(item, list(item.scale), list(item.position)) for item in items]
+
+        def apply(f):
+            for item, scale, position in snapshot:
+                if f == 1.0:
+                    item.scale, item.position = list(scale), list(position)
+                    continue
+                item.scale = [scale[0] * f, scale[1] * f]
+                item.position = [anchor[0] + (position[0] - anchor[0]) * f,
+                                 anchor[1] + (position[1] - anchor[1]) * f]
+
+        def g(f):
+            apply(f)
+            return self._measure_layout(items)[axis] - target
+
+        with self.batch_items():
+            try:
+                points = [(1.0, now - target)]
+                best = points[0]
+                f = target / now
+                for _ in range(11):  # 12 evaluations including F = 1
+                    if not math.isfinite(f) or f <= 0:
+                        break
+                    value = g(f)
+                    points.append((f, value))
+                    if abs(value) < abs(best[1]):
+                        best = (f, value)
+                    if abs(value) <= 1e-6:
+                        break
+                    (f0, g0), (f1, g1) = points[-2], points[-1]
+                    if g1 == g0:
+                        break
+                    f = f1 - g1 * (f1 - f0) / (g1 - g0)
+                apply(best[0])
+            except Exception:
+                apply(1.0)
+                raise
 
     def get_filters_from_registry(self, registry):
         results = []

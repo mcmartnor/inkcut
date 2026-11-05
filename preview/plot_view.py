@@ -169,8 +169,6 @@ class PlotView(Control):
         if change['name'] == 'overlay' and not self.proxy_is_active:
             old, new = change.get('oldvalue'), change.get('value')
             if old is not None and old is not new:
-                if new is not None:
-                    new.editor.selected_uid = old.editor.selected_uid
                 old.dispose()
         super(PlotView, self)._update_proxy(change)
 
@@ -220,8 +218,6 @@ class QtPlotView(QtControl, ProxyPlotView):
     def set_overlay(self, overlay):
         old = self.widget.layout_overlay
         if old is not None and old is not overlay:
-            if overlay is not None:
-                overlay.editor.selected_uid = old.editor.selected_uid
             self.widget.removeItem(old)
             old.dispose()
         self.widget.layout_overlay = overlay

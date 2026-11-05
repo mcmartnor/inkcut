@@ -189,9 +189,11 @@ class LayerFilter(SvgFilter):
         # TODO: Extract all layers in the document and return a list of them
         svg = doc._e
         layers = []
+        seen = set()
         for g in get_layers(svg):
             label = get_layer_label(g)
-            if label is not None:
+            if label is not None and label not in seen:
+                seen.add(label)
                 style = get_node_style(g)
                 # If the layer is hidden disable it by default
                 enabled = style.get('display') != "none"
@@ -208,9 +210,8 @@ class LayerFilter(SvgFilter):
         # Find the layer in the cloned doc
         for g in get_layers(svg):
             label = get_layer_label(g)
-            if label == self.name:
+            if label == self.name and g.getparent() is not None:
                 g.getparent().remove(g)
-                break
 
         return QtSvgDoc(svg, parent=True)
 

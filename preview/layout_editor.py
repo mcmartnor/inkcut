@@ -34,9 +34,16 @@ class LayoutEditor:
     def __init__(self, job, to_display):
         self.job = job
         self.to_display = to_display
-        self.selected_uid = None
         self.cancel_drag()
         self.refresh_transform()
+
+    @property
+    def selected_uid(self):
+        return self.job.selected_uid
+
+    @selected_uid.setter
+    def selected_uid(self, uid):
+        self.job.selected_uid = uid or ''
 
     def refresh_transform(self):
         basis = [(0., 0.), (1., 0.), (0., 1.)]
@@ -121,17 +128,7 @@ class LayoutEditor:
         item.weedline = not item.weedline
 
     def rotate_90(self, item):
-        rect = self.job.item_bounds(item, outer=False)
-        if rect is None:
-            return
-        rotation = (item.rotation + 90) % 360
-        new = self.job.item_bounds(item, outer=False, rotation=rotation)
-        position = [round(rect.center().x() - new.width() / 2, 9),
-                    round(rect.center().y() - new.height() / 2, 9)]
-        with self.job.batch_items():
-            item.rotation = rotation
-            if item.position != position:
-                item.position = position
+        self.job.set_item_rotation(item, (item.rotation + 90) % 360)
 
     def remove(self, item):
         self.job.items.remove(item)
@@ -155,6 +152,7 @@ class LayoutEditorItem(GraphicsObject):
         self.setFlag(self.ItemIsFocusable, True)
         for name in ('model', 'items', 'layout_problems'):
             job.observe(name, self._refresh)
+        job.observe('selected_uid', self._repaint)
         if device is not None:
             device.observe('config', self._device_config_changed)
             self._observe_config(True)
@@ -179,6 +177,7 @@ class LayoutEditorItem(GraphicsObject):
         self.editor.cancel_drag()
         for name in ('model', 'items', 'layout_problems'):
             self.editor.job.unobserve(name, self._refresh)
+        self.editor.job.unobserve('selected_uid', self._repaint)
         if self.device is not None:
             self.device.unobserve('config', self._device_config_changed)
             self._observe_config(False)
@@ -188,8 +187,9 @@ class LayoutEditorItem(GraphicsObject):
         self.editor.cancel_drag()
         self.ghost = None
         self.editor.refresh_transform()
-        if self.editor.selected_uid not in {it.uid for it in self.editor.job.items}:
-            self.editor.selected_uid = None
+        self.update()
+
+    def _repaint(self, change):
         self.update()
 
     def view_px(self):
