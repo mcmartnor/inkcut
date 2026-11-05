@@ -9,12 +9,27 @@ Created on Dec 7, 2017
 
 @author: jrm
 """
-from enaml.widgets.api import DockArea, DockItem
+from atom.api import observe
+from enaml.widgets.api import Container, DockArea, DockItem
 
 
 # -----------------------------------------------------------------------------
 # Custom widgets
 # -----------------------------------------------------------------------------
+class Section(Container):
+    """ Container that asks its parent to lay out again when it is shown
+    or hidden; enaml's QtContainer swallows that request (qt_container.py
+    request_relayout), so the parent's vbox would keep the old children.
+
+    This only works when the parent is a Container (a Form included).
+
+    """
+    @observe('visible')
+    def _relayout_parent(self, change):
+        if change['type'] == 'update' and isinstance(self.parent, Container):
+            self.parent.request_relayout()
+
+
 class PickableDockItem(DockItem):
     """ A custom pickable dock item class.
 

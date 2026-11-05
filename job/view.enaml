@@ -24,7 +24,7 @@ from enamlx.widgets.api import (
     DoubleSpinBox, TableView, TableViewRow, TableViewItem
 )
 
-from inkcut.core.api import DockItem
+from inkcut.core.api import DockItem, Section
 from inkcut.core.utils import (
     load_icon, load_image, from_unit, to_unit, color_icon
 )
@@ -151,7 +151,7 @@ enamldef GraphicDockItem(DockItem):
     name = 'graphic-item'
     title = QApplication.translate("job", "Graphic")
     Container:
-        Container:
+        Section:
             #: Multi-file layout: total size, file list and the selected file
             visible << bool(job.items)
             padding = 0
@@ -198,7 +198,7 @@ enamldef GraphicDockItem(DockItem):
                         text = "●"
                         foreground = '#d32f2f'
                         visible << loop_item.uid in problem_uids(job.layout_problems)
-            Container: item_form:
+            Section: item_form:
                 attr sel << selected_item(job.items, job.selected_uid)
                 visible << sel is not None
                 padding = 0
@@ -322,7 +322,7 @@ enamldef GraphicDockItem(DockItem):
                         toggled ::
                             if sel is not None and sel.mirror[1] != change['value']:
                                 sel.mirror = [sel.mirror[0], change['value']]
-        Container:
+        Section:
             visible << not job.items
             padding = 0
             Label:
@@ -534,7 +534,7 @@ enamldef GraphicDockItem(DockItem):
                 text = QApplication.translate("job", "Fill to save space")
                 checked := job.auto_copies
 
-        Container:
+        Section:
             visible << not job.items
             padding = 0
             Label:
@@ -594,7 +594,7 @@ enamldef GraphicDockItem(DockItem):
             CheckBox:
                 text = QApplication.translate("job", "Rotate to save space")
                 checked := job.auto_rotate
-        Container:
+        Section:
             visible << not job.items
             padding = 0
 
@@ -715,7 +715,7 @@ enamldef WeedlinesDockItem(DockItem):
                     single_step = 0.1
 
 
-        Container:
+        Section:
             visible << bool(job.items)
             padding = 0
             Label:
