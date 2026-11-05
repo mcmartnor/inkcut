@@ -210,6 +210,14 @@ class JobPlugin(Plugin):
         from inkcut.core.utils import defer_to_thread
         d = defer_to_thread(self._convert_items_sync, paths)
         d.addCallback(loaded)
+
+        def failed(failure):
+            log.error("Opening documents failed: %s", failure)
+            if self.workbench is not None:
+                self.workbench.message_warning(
+                    title='Opening documents',
+                    message=str(failure.getErrorMessage()))
+        d.addErrback(failed)
         return d
 
     def open_document(self, path, nodes=None):
@@ -342,7 +350,7 @@ class JobPlugin(Plugin):
         and create a new Job instance. Otherwise no job is open so do nothing.
 
         """
-        if not self.job.document:
+        if not self.job.has_content:
             return
 
         log.info("Closing {doc}".format(doc=self.job))

@@ -334,12 +334,16 @@ class Job(Model):
         are not set to None. Ideally these would be defined as Typed but
         the material may be made extendable at some point.
         """
-        with self.batch_items():
-            super(Job, self).__setstate__(*args, **kwargs)
-            if not self.info:
-                self.info = JobInfo()
-            if not self.material:
-                self.material = Material()
+        try:
+            with self.batch_items():
+                super(Job, self).__setstate__(*args, **kwargs)
+                if not self.info:
+                    self.info = JobInfo()
+                if not self.material:
+                    self.material = Material()
+        except Exception as e:
+            #: Never let a broken item layout discard the whole saved state
+            log.exception(e)
 
     def _observe_document(self, change):
         """ Read the document from stdin """
@@ -539,7 +543,8 @@ class Job(Model):
                         value = re.sub(r'url\(\s*([\'"]?)#([^\s)\'"]+)\1\s*\)',
                                        lambda m: 'url(#%s)' % ids.get(m[2], m[2]), value)
                         e.set(name, value)
-                    if e.tag == '{%s}g' % ns and e.get(ink + 'groupmode') == 'layer':
+                    if (e.tag == '{%s}g' % ns and e.get(ink + 'groupmode') == 'layer'
+                            and e.get(ink + 'label')):
                         e.set(ink + 'label', '%s [%s] / %s' %
                               (item, item.uid, e.get(ink + 'label', '')))
                 placement = QTransform.fromTranslate(item.position[0] - bbox.left(),
@@ -883,7 +888,12 @@ class Job(Model):
             model.addPath(QTransform.fromTranslate(x, -y).map(path))
         if self.plot_weedline and not model.isEmpty():
             self._add_weedline(model, self.plot_weedline_padding)
-        px, py = self.material.padding_left, -self.material.padding_bottom
+        # Re-anchor like the single-file path (bbox -> padding corner after
+        # device scale/swap), keeping the envelope's layout offset as extra
+        # padding so absolute positions survive mirror/swap.
+        c = model.boundingRect()
+        px = self.material.padding_left + c.left()
+        py = -self.material.padding_bottom + c.bottom()
         t = QTransform()
         if scale:
             t = QTransform.fromScale(*scale)
@@ -893,13 +903,11 @@ class Job(Model):
             rotation.rotate(90)
             t = t * rotation
             px, py = -py, -px
-        t = t * QTransform.fromTranslate(px, py)
+        b = t.mapRect(c)
+        t = t * QTransform.fromTranslate(px - b.left(), py - b.bottom())
         if not swap_xy and scale is None:
             self.layout_transform = t
         model = self.apply_filters(self.job_filters, t.map(model))
-        if model.isEmpty():
-            self.model = None
-            return None
         if not swap_xy and scale is None:
             bbox = model.boundingRect()
             self.final_size = [bbox.width(), bbox.height()]
