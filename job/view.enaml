@@ -204,6 +204,9 @@ enamldef GraphicDockItem(DockItem):
                                     foreground = '#1976d2'
                                     visible << job.selected_uid == loop_item.uid
                                 PushButton: row:
+                                    #: A long file name is clipped, it does not widen the panel
+                                    hug_width = 'weak'
+                                    resist_width = 'ignore'
                                     text << str(loop_item) + (" ×%d" % loop_item.copies if loop_item.copies > 1 else "")
                                     clicked :: job.selected_uid = loop_item.uid
                                 Label: marker:
@@ -216,6 +219,7 @@ enamldef GraphicDockItem(DockItem):
                         padding = 0
                         SectionHeader: h_file:
                             name = 'section-file'
+                            resist_width = 'ignore'
                             title << str(sel) if sel is not None else ""
                         Section:
                             visible << h_file.expanded

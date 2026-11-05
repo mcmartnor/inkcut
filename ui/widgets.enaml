@@ -7,7 +7,7 @@ Shared panel widgets: a scroll area for the dock panels, the header of
 a collapsible section and the dark input field styles.
 """
 from enaml.styling import StyleSheet, Style, Setter
-from enaml.widgets.api import ScrollArea, ToolButton
+from enaml.widgets.api import Container, ScrollArea, ToolButton
 from enaml.qt.QtWidgets import QWidget
 from inkcut.core.theme import PANEL_COLORS
 
@@ -22,7 +22,8 @@ enamldef PanelScroll(ScrollArea):
     """
     border = None
     resist_height = 'ignore'
-    #: Long file names must not widen the dock
+    #: The minimum width is set from the content in follow_content_width,
+    #: not from the hint, so long file names do not widen the dock
     resist_width = 'ignore'
     minimum_size = (0, 120)
     horizontal_policy = 'as_needed'
@@ -35,6 +36,24 @@ enamldef PanelScroll(ScrollArea):
         corner = QWidget()
         corner.setAutoFillBackground(False)
         widget.setCornerWidget(corner)
+        widget.layoutRequested.connect(self.follow_content_width)
+        self.follow_content_width()
+    func follow_content_width():
+        """ Minimum width = the content's minimum + the vertical bar, so
+        the panel never needs horizontal scrolling for its own fields """
+        if not self.proxy_is_active:
+            return
+        widget = self.proxy.widget
+        inner = widget.widget()
+        if inner is None:
+            return
+        w = (inner.minimumSizeHint().width()
+             + widget.verticalScrollBar().sizeHint().width()
+             + 2 * widget.frameWidth())
+        if w != self.minimum_size[0]:
+            self.minimum_size = (w, self.minimum_size[1])
+            if isinstance(self.parent, Container):
+                self.parent.request_relayout()
 
 
 enamldef SectionHeader(ToolButton):
