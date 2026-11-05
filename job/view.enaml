@@ -656,10 +656,12 @@ enamldef WeedlinesDockItem(DockItem):
         padding = 0
         PanelScroll:
             Container:
-                Container:
+                SectionHeader: h_spacing:
+                    name = 'section-graphic-spacing'
+                    title = QApplication.translate("job", "Graphic Spacing")
+                Section:
+                    visible << h_spacing.expanded
                     padding = 0
-                    Label:
-                        text = QApplication.translate("job", "Graphic Spacing")
                     Form:
                         padding = 0
                         Label:
@@ -679,11 +681,13 @@ enamldef WeedlinesDockItem(DockItem):
                             maximum = 99999.9
                             single_step = 0.1
 
-                Container:
+                SectionHeader: h_order:
+                    name = 'section-plotting-order'
+                    title = QApplication.translate("job", "Plotting Order")
+                Section:
+                    visible << h_order.expanded
                     padding = 0
 
-                    Label:
-                        text = QApplication.translate("job", "Plotting Order")
                     Form:
                         padding = 0
                         ImageView:
@@ -693,11 +697,13 @@ enamldef WeedlinesDockItem(DockItem):
                             to_string = lambda it: QApplication.translate("job", it)
                             selected := job.order
                             hug_width = 'ignore' # Expanding
-                Container:
+                SectionHeader: h_plot_weedlines:
+                    name = 'section-plot-weedlines'
+                    title = QApplication.translate("job", "Plot Weedlines")
+                Section:
+                    visible << h_plot_weedlines.expanded
                     padding = 0
 
-                    Label:
-                        text = QApplication.translate("job", "Plot Weedlines")
                     CheckBox:
                         text = QApplication.translate("job", "Add weedline to plot")
                         icon = load_icon('shape_group')
@@ -706,11 +712,13 @@ enamldef WeedlinesDockItem(DockItem):
                         text = QApplication.translate("job", "Add weedline to copies")
                         icon = load_icon('shape_ungroup')
                         checked := job.copy_weedline
-                Container:
+                SectionHeader: h_weedline_padding:
+                    name = 'section-weedline-padding'
+                    title = QApplication.translate("job", "Weedline Padding")
+                Section:
+                    visible << h_weedline_padding.expanded
                     padding = 0
 
-                    Label:
-                        text = QApplication.translate("job", "Weedline Padding")
                     Form:
                         padding = 0
                         ImageView:
@@ -750,63 +758,69 @@ enamldef WeedlinesDockItem(DockItem):
                 Section:
                     visible << bool(job.items)
                     padding = 0
-                    Label:
-                        visible << bool(job.layout_problems)
-                        text << job.layout_problem_text(job.layout_problems)
-                    CheckBox:
-                        text = QApplication.translate("job", "Allow rotating when arranging")
-                        checked := job.item_allow_rotation
-                    Form:
+                    SectionHeader: h_file_weedlines:
+                        name = 'section-file-weedlines'
+                        title = QApplication.translate("job", "File Weedlines")
+                    Section:
+                        visible << h_file_weedlines.expanded
                         padding = 0
                         Label:
-                            text = QApplication.translate("job", "Snap grid")
-                        DoubleSpinBox:
-                            value << to_unit(job.item_snap_grid, plugin.units)
-                            value :: job.item_snap_grid = from_unit(change['value'], plugin.units)
-                            suffix << " "+plugin.units
-                            minimum = 0
-                            maximum = 99999.9
-                            single_step = 0.1
-                    CheckBox:
-                        text = QApplication.translate("job", "Weedline around each graphic")
-                        checked << bool(job.items) and all([item.weedline for item in job.items])
-                        toggled :: job.set_item_weedlines(self.checked)
-                    Label:
-                        text = QApplication.translate("job", "Graphic weedline padding")
-                    Form:
-                        padding = 0
-                        ImageView:
-                            image = load_image('text_padding_left')
-                        DoubleSpinBox:
-                            value << to_unit(job.item_weedline_padding[0], plugin.units)
-                            value :: try_update_setting(plugin, self, job.item_weedline_padding, 0, change)
-                            suffix << " "+plugin.units
-                            maximum = 99999.9
-                            single_step = 0.1
-                        ImageView:
-                            image = load_image('text_padding_top')
-                        DoubleSpinBox:
-                            value << to_unit(job.item_weedline_padding[1], plugin.units)
-                            value :: try_update_setting(plugin, self, job.item_weedline_padding, 1, change)
-                            suffix << " "+plugin.units
-                            maximum = 99999.9
-                            single_step = 0.1
-                        ImageView:
-                            image = load_image('text_padding_right')
-                        DoubleSpinBox:
-                            value << to_unit(job.item_weedline_padding[2], plugin.units)
-                            value :: try_update_setting(plugin, self, job.item_weedline_padding, 2, change)
-                            suffix << " "+plugin.units
-                            maximum = 99999.9
-                            single_step = 0.1
-                        ImageView:
-                            image = load_image('text_padding_bottom')
-                        DoubleSpinBox:
-                            value << to_unit(job.item_weedline_padding[3], plugin.units)
-                            value :: try_update_setting(plugin, self, job.item_weedline_padding, 3, change)
-                            suffix << " "+plugin.units
-                            maximum = 99999.9
-                            single_step = 0.1
+                            visible << bool(job.layout_problems)
+                            text << job.layout_problem_text(job.layout_problems)
+                        CheckBox:
+                            text = QApplication.translate("job", "Allow rotating when arranging")
+                            checked := job.item_allow_rotation
+                        Form:
+                            padding = 0
+                            Label:
+                                text = QApplication.translate("job", "Snap grid")
+                            DoubleSpinBox:
+                                value << to_unit(job.item_snap_grid, plugin.units)
+                                value :: job.item_snap_grid = from_unit(change['value'], plugin.units)
+                                suffix << " "+plugin.units
+                                minimum = 0
+                                maximum = 99999.9
+                                single_step = 0.1
+                        CheckBox:
+                            text = QApplication.translate("job", "Weedline around each graphic")
+                            checked << bool(job.items) and all([item.weedline for item in job.items])
+                            toggled :: job.set_item_weedlines(self.checked)
+                        Label:
+                            text = QApplication.translate("job", "Graphic weedline padding")
+                        Form:
+                            padding = 0
+                            ImageView:
+                                image = load_image('text_padding_left')
+                            DoubleSpinBox:
+                                value << to_unit(job.item_weedline_padding[0], plugin.units)
+                                value :: try_update_setting(plugin, self, job.item_weedline_padding, 0, change)
+                                suffix << " "+plugin.units
+                                maximum = 99999.9
+                                single_step = 0.1
+                            ImageView:
+                                image = load_image('text_padding_top')
+                            DoubleSpinBox:
+                                value << to_unit(job.item_weedline_padding[1], plugin.units)
+                                value :: try_update_setting(plugin, self, job.item_weedline_padding, 1, change)
+                                suffix << " "+plugin.units
+                                maximum = 99999.9
+                                single_step = 0.1
+                            ImageView:
+                                image = load_image('text_padding_right')
+                            DoubleSpinBox:
+                                value << to_unit(job.item_weedline_padding[2], plugin.units)
+                                value :: try_update_setting(plugin, self, job.item_weedline_padding, 2, change)
+                                suffix << " "+plugin.units
+                                maximum = 99999.9
+                                single_step = 0.1
+                            ImageView:
+                                image = load_image('text_padding_bottom')
+                            DoubleSpinBox:
+                                value << to_unit(job.item_weedline_padding[3], plugin.units)
+                                value :: try_update_setting(plugin, self, job.item_weedline_padding, 3, change)
+                                suffix << " "+plugin.units
+                                maximum = 99999.9
+                                single_step = 0.1
 
 
 enamldef LayersDockItem(DockItem):
