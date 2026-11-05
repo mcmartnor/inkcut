@@ -13,10 +13,16 @@ import pyqtgraph as pg
 from atom.api import List, Instance, Enum, Bool, Range
 from enaml.qt import QtCore, QtGui
 from inkcut.core.api import Plugin, Model, unit_conversions, log
+from inkcut.core.theme import Theme, make_pens, PEN_ROLES
 from .plot_view import PainterPathPlotItem
 
 
 QPen = QtGui.QPen
+
+
+def theme_pen(role):
+    theme = Theme.instance()
+    return make_pens(theme is not None and theme.dark)[role]
 
 
 class PreviewModel(Model):
@@ -34,23 +40,37 @@ class PreviewModel(Model):
     pen_down = Instance(QPen)
     pen_device = Instance(QPen)
 
+    #: (curve, role) of the plotted curves drawn with one of the pens above
+    pen_roles = List()
+
     def _default_pen_media(self):
-        return pg.mkPen((128, 128, 128))
+        return theme_pen('media')
 
     def _default_pen_media_padding(self):
-        return pg.mkPen((128, 128, 128), style=QtCore.Qt.DashLine)
+        return theme_pen('media_padding')
 
     def _default_pen_device(self):
-        return pg.mkPen((235, 194, 194), style=QtCore.Qt.DashLine)
+        return theme_pen('device')
 
     def _default_pen_up(self):
-        return pg.mkPen(hsv=(0.53, 1, 0.5, 0.5))
+        return theme_pen('up')
 
     def _default_pen_offset(self):
-        return pg.mkPen(hsv=(0.43, 1, 0.5, 0.5))
+        return theme_pen('offset')
 
     def _default_pen_down(self):
-        return pg.mkPen((128, 128, 128))
+        return theme_pen('down')
+
+    def roles_of(self, curves, items):
+        """ The (curve, role) pairs of curves made with one of the pens """
+        roles = []
+        for curve, kwargs in zip(curves, items):
+            pen = kwargs.get('pen')
+            for role in PEN_ROLES:
+                if pen is not None and pen is getattr(self, 'pen_' + role):
+                    roles.append((curve, role))
+                    break
+        return roles
 
     def init(self, view_items):
         default_items = []
@@ -60,6 +80,7 @@ class PreviewModel(Model):
             self.paths[0], pen=self.pen_down))
         default_items.append(PainterPathPlotItem(
             self.paths[1], pen=self.pen_up))
+        self.pen_roles = [(default_items[0], 'down'), (default_items[1], 'up')]
         self.plot = default_items + view_items
 
     def update(self, position):
@@ -92,6 +113,34 @@ class PreviewPlugin(Plugin):
     show_grid_y = Bool().tag(config=True)
     grid_alpha = Range(value=30, low=1, high=100).tag(config=True)
 
+    _theme = Instance(Theme)
+
+    def start(self):
+        super(PreviewPlugin, self).start()
+        self._theme = Theme.instance()
+        if self._theme is not None:
+            self._theme.observe('revision', self._theme_changed)
+
+    def stop(self):
+        if self._theme is not None:
+            self._theme.unobserve('revision', self._theme_changed)
+            self._theme = None
+        super(PreviewPlugin, self).stop()
+
+    def _theme_changed(self, change):
+        """ Give the models and their plotted curves the pens of the
+        new palette, without rebuilding the plot.
+
+        """
+        pens = make_pens(self._theme.dark)
+        for model in (self.preview, self.live_preview):
+            for role in PEN_ROLES:
+                setattr(model, 'pen_' + role, pens[role])
+            for curve, role in model.pen_roles:
+                try:
+                    curve.setPen(getattr(model, 'pen_' + role))
+                except RuntimeError:
+                    pass  # Qt already deleted it with a closed plot
 
     def _default_transform(self):
         """ Qt displays top to bottom so this can be used to flip it.
@@ -113,6 +162,7 @@ class PreviewPlugin(Plugin):
             PainterPathPlotItem(kwargs.pop('path'), **kwargs)
             for kwargs in items
         ]
+        self.preview.pen_roles = self.preview.roles_of(view_items, items)
         self.preview.plot = view_items
 
     def set_live_preview(self, *items):
@@ -130,5 +180,7 @@ class PreviewPlugin(Plugin):
             PainterPathPlotItem(kwargs.pop('path'), **kwargs)
             for kwargs in items
         ]
+        roles = self.live_preview.roles_of(view_items, items)
         self.live_preview.init(view_items)
+        self.live_preview.pen_roles += roles
 

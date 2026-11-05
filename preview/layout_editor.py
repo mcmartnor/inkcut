@@ -8,6 +8,7 @@ from pyqtgraph.graphicsItems.GraphicsObject import GraphicsObject
 from pyqtgraph.graphicsItems.ViewBox.ViewBox import ViewBox
 
 from inkcut.job.layout import affine_from_points, invert_affine, hit_test, snap_rect
+from inkcut.core.theme import is_dark, overlay_colors
 
 
 def point_tuple(point):
@@ -225,9 +226,11 @@ class LayoutEditorItem(GraphicsObject):
         e = self.editor
         problems = {uid for uid, _ in e.job.layout_problems}
         painter.setBrush(Qt.NoBrush)
+        problem, selected, normal = overlay_colors(
+            is_dark(widget.palette()) if widget is not None else False)
         for item, rect in zip(e.valid_items(), e.item_rects_display()):
-            color = ('#d32f2f' if item.uid in problems else
-                     '#1976d2' if item.uid in (e.selected_uid, self.hover_uid) else '#777777')
+            color = (problem if item.uid in problems else
+                     selected if item.uid in (e.selected_uid, self.hover_uid) else normal)
             pen = QPen(QColor(color))
             pen.setCosmetic(True)
             pen.setWidth(2 if item.uid == e.selected_uid else 1)

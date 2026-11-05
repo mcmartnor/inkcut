@@ -20,12 +20,14 @@ from enaml.qt.qt_application import QtApplication
 from enaml.qt.qt_control import QtControl
 from enaml.qt import QtGui
 from enaml.qt.QtCore import QEvent
+from enaml.qt.QtWidgets import QApplication
 from enaml.widgets.control import Control, ProxyControl
 from pyqtgraph.widgets.PlotWidget import PlotWidget
 from pyqtgraph.graphicsItems.PlotCurveItem import PlotCurveItem
 from pyqtgraph.graphicsItems.ViewBox.ViewBox import ViewBox
 from pyqtgraph.graphicsItems.AxisItem import AxisItem
 from pyqtgraph.graphicsItems.GraphicsObject import GraphicsObject
+from inkcut.core.theme import Theme, preview_colors
 
 
 def zoom_percent_for_span(base_width, x_span):
@@ -204,11 +206,28 @@ class QtPlotView(QtControl, ProxyPlotView):
     widget = Typed(PlotWidget)
     _views = List()
     _colors = List(default=['r', 'g', 'b'])
+    _theme = Typed(Theme)
 
     def create_widget(self):
-        self.widget = LayoutPlotWidget(self.parent_widget(), background='w')
+        self._theme = Theme.instance()
+        self.widget = LayoutPlotWidget(self.parent_widget(),
+                                       background=self._background())
+        if self._theme is not None:
+            self._theme.observe('revision', self._theme_changed)
+
+    def _background(self):
+        dark = self._theme is not None and self._theme.dark
+        base = QApplication.palette().base().color()
+        return preview_colors(dark, base)['background']
+
+    def _theme_changed(self, change):
+        if self.widget is not None:
+            self.widget.setBackground(self._background())
 
     def destroy(self):
+        if self._theme is not None:
+            self._theme.unobserve('revision', self._theme_changed)
+            self._theme = None
         if self.widget is not None:
             self.set_overlay(None)
         elif self.declaration.overlay is not None:
