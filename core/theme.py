@@ -63,6 +63,18 @@ def overlay_colors(dark):
     return ('#d32f2f', '#1976d2', '#777777')
 
 
+#: Dark panel colors (as in Photoshop): work area, panel body, panel
+#: title bar, input fields, field border and field text
+PANEL_COLORS = {
+    'area': '#1e1e1e',
+    'panel': '#2b2b2b',
+    'title': '#323232',
+    'field': '#1a1a1a',
+    'border': '#3c3c3c',
+    'text': '#dadada',
+}
+
+
 def effective_dock_style(style, dark):
     return 'system' if dark else style
 

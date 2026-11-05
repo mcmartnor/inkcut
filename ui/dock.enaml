@@ -18,7 +18,7 @@ from enaml.stdlib.dock_area_styles import (
 )
 from enaml.qt import QT_API
 from inkcut.core.api import DockArea, DockItem
-from inkcut.core.theme import Theme, effective_dock_style
+from inkcut.core.theme import Theme, effective_dock_style, is_dark, PANEL_COLORS
 
 
 IS_QT4 = QT_API in ('pyside', 'pyside2')
@@ -33,6 +33,10 @@ def get_system_color(name='window'):
     else:
         return qcolor.name(qcolor.HexArgb)
 
+def dark_palette():
+    from enaml.qt.QtWidgets import QApplication
+    return is_dark(QApplication.palette())
+
 def available_languages():
     return ["English", "Francais"]
 
@@ -43,12 +47,12 @@ template SystemStyle():
     CommonStyles():
         pass
     AreaStyle:
-        background = get_system_color('window')
+        background = PANEL_COLORS['area'] if dark_palette() else get_system_color('window')
     ItemStyle:
-        background = get_system_color('window')
-        border = '1px solid '+get_system_color('base')
+        background = PANEL_COLORS['panel'] if dark_palette() else get_system_color('window')
+        border = ('1px solid ' + PANEL_COLORS['border']) if dark_palette() else '1px solid '+get_system_color('base')
     TitleBarStyle:
-        background = get_system_color('base')
+        background = PANEL_COLORS['title'] if dark_palette() else get_system_color('base')
 
 
 if 'system' not in available_styles():
