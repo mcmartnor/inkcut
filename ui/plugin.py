@@ -13,12 +13,12 @@ import sys
 import enaml
 import importlib.metadata
 from datetime import datetime
-from atom.api import Atom, Int, List, Str, Instance, Bool, Enum, Dict
+from atom.api import Atom, Int, List, Str, Instance, Bool, Enum, Dict, Value
 from enaml.qt.q_resource_helpers import get_cached_qicon
 from enaml.layout.api import (AreaLayout, DockBarLayout, HSplitLayout,
                               ItemLayout, TabLayout, VSplitLayout)
-from enaml.widgets.api import MenuBar
-from enaml.application import timed_call
+from enaml.widgets.api import MenuBar, Window, Container
+from enaml.application import timed_call, Application
 
 from inkcut.core.api import Plugin, DockItem, log
 from inkcut.core.utils import load_icon
@@ -144,6 +144,12 @@ class InkcutPlugin(Plugin):
     effective_dock_style = Str()
     _theme = Instance(Theme)
 
+    #: The dark widget style sheet (made once), the application style
+    #: sheet it replaced and whether it is installed by this plugin
+    _dark_sheet = Value()
+    _saved_sheet = Value()
+    _owns_sheet = Bool()
+
     #: Settings pages to add
     settings_pages = List(extensions.SettingsPage)
 
@@ -178,6 +184,7 @@ class InkcutPlugin(Plugin):
         if self._theme is not None:
             self._theme.unobserve('dark', self._refresh_effective_dock_style)
             self._theme = None
+        self._release_dark_sheet()
         super(InkcutPlugin, self).stop()
 
     def _observe_dock_style(self, change):
@@ -186,6 +193,47 @@ class InkcutPlugin(Plugin):
     def _refresh_effective_dock_style(self, change=None):
         dark = self._theme is not None and self._theme.dark
         self.effective_dock_style = effective_dock_style(self.dock_style, dark)
+        if dark and not self._owns_sheet:
+            self._install_dark_sheet()
+        elif not dark and self._owns_sheet:
+            self._release_dark_sheet()
+
+    def _install_dark_sheet(self):
+        """ Dark input fields in every window, dialogs included """
+        app = Application.instance()
+        if app is None:
+            return
+        if self._dark_sheet is None:
+            with enaml.imports():
+                from .widgets import DarkWidgetStyles
+            self._dark_sheet = DarkWidgetStyles()
+        self._saved_sheet = app.style_sheet
+        app.style_sheet = self._dark_sheet
+        self._owns_sheet = True
+        self._relayout_after_restyle()
+
+    def _release_dark_sheet(self):
+        """ Put back the sheet ours replaced, unless someone else has
+        replaced ours meanwhile """
+        app = Application.instance()
+        if self._owns_sheet and app is not None and app.style_sheet is self._dark_sheet:
+            app.style_sheet = self._saved_sheet
+            self._relayout_after_restyle()
+        self._saved_sheet = None
+        self._owns_sheet = False
+
+    def _relayout_after_restyle(self):
+        """ A sheet change restyles every widget (deferred). A changed
+        size hint would then be edited into the live kiwi solver one
+        constraint at a time, which can abort the process (kiwi
+        InternalSolverError). With a relayout pending the containers skip
+        those edits and solve again from scratch after the restyle,
+        bottom up as at start-up. Must run in the same call that sets
+        Application.style_sheet (before the event loop runs). """
+        for window in list(Window.windows):
+            for obj in reversed(list(window.traverse())):
+                if isinstance(obj, Container):
+                    obj.request_relayout()
 
     def _register_settings_menu(self):
         """ Register the checkable Settings menu items.

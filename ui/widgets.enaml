@@ -3,10 +3,13 @@ Distributed under the terms of the GPL v3 License.
 
 The full license is in the file LICENSE, distributed with this software.
 
-Shared panel widgets: a scroll area for the dock panels.
+Shared panel widgets: a scroll area for the dock panels and the dark
+input field styles.
 """
+from enaml.styling import StyleSheet, Style, Setter
 from enaml.widgets.api import ScrollArea
 from enaml.qt.QtWidgets import QWidget
+from inkcut.core.theme import PANEL_COLORS
 
 
 enamldef PanelScroll(ScrollArea):
@@ -32,3 +35,40 @@ enamldef PanelScroll(ScrollArea):
         corner = QWidget()
         corner.setAutoFillBackground(False)
         widget.setCornerWidget(corner)
+
+
+enamldef DarkWidgetStyles(StyleSheet):
+    """ Dark input fields and section headers. The ui plugin sets it as
+    the application style sheet while the palette is dark.
+
+    """
+    Style:
+        element = 'Field, SpinBox'
+        Setter:
+            field = 'background'
+            value = PANEL_COLORS['field']
+        Setter:
+            field = 'border'
+            value = '1px solid ' + PANEL_COLORS['border']
+        Setter:
+            field = 'color'
+            value = PANEL_COLORS['text']
+    Style:
+        element = 'ObjectCombo'
+        Setter:
+            field = 'background'
+            value = PANEL_COLORS['field']
+        Setter:
+            field = 'border'
+            value = '1px solid ' + PANEL_COLORS['border']
+        Setter:
+            field = 'color'
+            value = PANEL_COLORS['text']
+    Style:
+        style_class = 'section-header'
+        Setter:
+            field = 'background'
+            value = PANEL_COLORS['title']
+        Setter:
+            field = 'color'
+            value = PANEL_COLORS['text']
