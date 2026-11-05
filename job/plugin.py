@@ -11,6 +11,7 @@ Created on Jul 12, 2015
 """
 import os
 import sys
+import math
 import enaml
 from atom.api import Instance, Enum, List, Str, Int, Float, observe, Bool
 from enaml.qt.QtCore import QUrl
@@ -66,6 +67,11 @@ class JobPlugin(Plugin):
     #: happened meanwhile, so a slow conversion can never replace a
     #: document the user opened after it. Not part of the saved state.
     _open_generation = Int()
+
+    #: Bumped by close_document and by a legacy open_document. A running
+    #: multi-file import holds the value it started with and drops its
+    #: result if it changed. Imports never invalidate each other.
+    _items_epoch = Int()
 
     def _default_job(self):
         job = Job(material=self.material)
@@ -162,31 +168,69 @@ class JobPlugin(Plugin):
                 errors.append('{}: {}'.format(path, exc))
         return items, errors, warnings
 
+    def _legacy_item(self, job, messages):
+        """JobItem for the active single-file job, or None if it can't be kept."""
+        source = job.source_document or job.document
+        if job.document_kwargs.get('ids') or not source or not os.path.isfile(source):
+            return None
+        rotation = job.rotation
+        if math.isfinite(rotation) and rotation % 90 == 0:
+            rotation = int(rotation) % 360
+        else:
+            messages.append('The rotation of {} ({}°) could not be kept.'.format(
+                os.path.basename(source), rotation))
+            rotation = 0
+        scale = [abs(v) if math.isfinite(v) and v != 0 else 1.0 for v in job.scale]
+        item = JobItem(document=job.document, source_document=source,
+                       rotation=rotation, mirror=list(job.mirror), scale=scale,
+                       position=[0.0, 0.0])
+        if item.load(dpi_default=self.dpi_default,
+                     dpi_auto_detect_inkscape=self.dpi_auto_detect_inkscape) is None:
+            return None
+        return item
+
     def open_documents(self, paths):
-        """Import a set in one worker; newer opens invalidate the whole result."""
+        """Import a set in one worker; every finished import is added."""
         from enaml.application import Application
+        #: A newer import must not be replaced by an older legacy conversion
         self._open_generation += 1
-        generation = self._open_generation
+        epoch = self._items_epoch
         paths = list(paths)
 
         def loaded(result):
-            if generation != self._open_generation:
+            if epoch != self._items_epoch:
                 return
             if not isinstance(result, tuple):
                 result = self._parse_converted(result)
             items, errors, warnings = result
+            notes = []
             if items:
-                if self.job.items:
-                    job = self.job
+                current = self.job
+                if current.items:
+                    job = current
                     with job.batch_items():
                         job.items.extend(items)
                         job.arrange_items(items)
+                elif current.document:
+                    legacy = self._legacy_item(current, notes)
+                    job = self._default_job()
+                    with job.batch_items():
+                        if legacy is not None:
+                            job.items = [legacy] + items
+                            job.arrange_items(items)
+                        else:
+                            job.items = items
+                            job.arrange_items()
+                            notes.append('The previous document ({}) was replaced.'
+                                         .format(current))
+                    self.job = job
                 else:
                     job = self._default_job()
                     with job.batch_items():
                         job.items = items
                         job.arrange_items()
                     self.job = job
+                job.selected_uid = items[-1].uid
                 docs = self.recent_documents[:]
                 for item in items:
                     path = item.source_document
@@ -196,7 +240,7 @@ class JobPlugin(Plugin):
                     if len(docs) > self.recent_document_limit:
                         docs.pop(0)
                 self.recent_documents = docs
-            messages = errors + warnings
+            messages = errors + warnings + notes
             if messages:
                 if self.workbench is not None:
                     self.workbench.message_warning(
@@ -213,6 +257,8 @@ class JobPlugin(Plugin):
 
         def failed(failure):
             log.error("Opening documents failed: %s", failure)
+            if epoch != self._items_epoch:
+                return
             if self.workbench is not None:
                 self.workbench.message_warning(
                     title='Opening documents',
@@ -241,6 +287,7 @@ class JobPlugin(Plugin):
         #: Any newer open — SVG or not — invalidates conversions that
         #: are still running in the background
         self._open_generation += 1
+        self._items_epoch += 1
 
         #: PDF and PDF-compatible .ai documents are converted to a cached
         #: SVG first — the parser only reads SVG. The original path is
@@ -350,6 +397,8 @@ class JobPlugin(Plugin):
         and create a new Job instance. Otherwise no job is open so do nothing.
 
         """
+        #: Close also drops multi-file imports that are still running
+        self._items_epoch += 1
         if not self.job.has_content:
             return
 

@@ -31,33 +31,46 @@ def open_document(event):
 
     #: If one was passed in use that
     path = event.parameters.get('path')
+    nodes = event.parameters.get('nodes')
 
-    if not path:
-        #: Get the previous path
-        if plugin.jobs:
-            #: Imported jobs load a converted copy from the internal
-            #: cache — start the dialog at the original document instead
-            last = plugin.jobs[-1]
-            current_path = dirname(last.source_document or last.document)
-        else:
-            current_path = expanduser('~')
-
-        #: Get the file to open
-        path = FileDialogEx.get_open_file_name(
-            ui.window, current_path=current_path,
-            name_filters=['Vector files (*.svg *.pdf *.ai)',
-                          'SVG (*.svg)', 'PDF (*.pdf)',
-                          'Adobe Illustrator (*.ai)']
-        )
-
-    #: Open it
     if path:
-        try:
-            plugin.open_document(path, nodes=event.parameters.get('nodes'))
-        except JobError as e:
-            workbench.message_critical(
-                title="Error opening document",
-                message="Could not open {}\n\n{}".format(path, e))
+        #: The cli, stdin, pasted source and node selections stay single-file
+        if (event.parameters.get('legacy') or path == '-' or
+                path.startswith('<?xml') or nodes):
+            try:
+                plugin.open_document(path, nodes=nodes)
+            except JobError as e:
+                workbench.message_critical(
+                    title="Error opening document",
+                    message="Could not open {}\n\n{}".format(path, e))
+            return
+        plugin.open_documents([path])
+        return
+
+    #: Get the previous path
+    job = plugin.job
+    if job.items:
+        last = job.items[-1]
+        current_path = dirname(last.source_document or last.document)
+    elif plugin.jobs:
+        #: Imported jobs load a converted copy from the internal
+        #: cache — start the dialog at the original document instead
+        last = plugin.jobs[-1]
+        current_path = dirname(last.source_document or last.document)
+    else:
+        current_path = expanduser('~')
+
+    #: Get the files to open
+    paths = FileDialogEx.get_open_file_names(
+        ui.window, current_path=current_path,
+        name_filters=['Vector files (*.svg *.pdf *.ai)',
+                      'SVG (*.svg)', 'PDF (*.pdf)',
+                      'Adobe Illustrator (*.ai)']
+    )
+
+    #: Open them
+    if paths:
+        plugin.open_documents(list(paths))
 
 
 def cli_open_document(cmd):
@@ -75,7 +88,8 @@ def cli_open_document(cmd):
     """
     core = cmd.workbench.get_plugin("enaml.workbench.core")
     core.invoke_command("inkcut.job.open", parameters={'path':cmd.args.path,
-                                                       'nodes':cmd.args.nodes})
+                                                       'nodes':cmd.args.nodes,
+                                                       'legacy': True})
     raise StopSystemExit()
 
 

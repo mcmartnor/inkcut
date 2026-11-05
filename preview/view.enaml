@@ -136,9 +136,7 @@ enamldef PreviewDockItem(DockItem):
                         urls = mime_data.data("text/uri-list").decode('utf-8').split("\n")
                         paths = [QUrl(url.strip()).toLocalFile() for url in urls
                                  if job_plugin.can_open(url)]
-                        if len(paths) == 1 and not job_plugin.job.items:
-                            job_plugin.open_document(paths[0])
-                        elif paths:
+                        if paths:
                             job_plugin.open_documents(paths)
                         if paths:
                             event.accept_proposed_action()
