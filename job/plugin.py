@@ -181,8 +181,15 @@ class JobPlugin(Plugin):
                 os.path.basename(source), rotation))
             rotation = 0
         scale = [abs(v) if math.isfinite(v) and v != 0 else 1.0 for v in job.scale]
+        #: A negative job scale is a flip on that sheet axis
+        mirror = [bool(m) != (math.isfinite(v) and v < 0)
+                  for m, v in zip(job.mirror, job.scale)]
+        #: The job scales along the sheet after rotating, a graphic along its
+        #: own axes before rotating: a quarter turn swaps them
+        if rotation % 180 == 90:
+            scale = scale[::-1]
         item = JobItem(document=job.document, source_document=source,
-                       rotation=rotation, mirror=list(job.mirror), scale=scale,
+                       rotation=rotation, mirror=mirror, scale=scale,
                        position=[0.0, 0.0])
         if item.load(dpi_default=self.dpi_default,
                      dpi_auto_detect_inkscape=self.dpi_auto_detect_inkscape) is None:
