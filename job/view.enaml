@@ -45,13 +45,27 @@ def is_echo(view, value, model_value):
     return value == model_value or value == round(model_value, view.decimals)
 
 
-def resync(view, getter):
-    """Show the model value again once the signal handling is done."""
+def resync(view, getter, current=lambda: True):
+    """Show the model value again once the signal handling is done.
+
+    `current` tells whether `getter` still describes what the view shows
+    (the job or the selected item may have changed meanwhile). The widget is
+    refreshed explicitly: the Qt proxy drops value updates made while its own
+    valueChanged is being handled, so view.value may already be right while
+    the widget still shows the typed value.
+    """
     from enaml.application import deferred_call, Application
+
+    def sync():
+        if current():
+            view.value = getter()
+        if view.proxy_is_active:
+            view.proxy.set_value(view.value)
+
     if Application.instance() is None:
-        view.value = getter()
+        sync()
     else:
-        deferred_call(lambda: setattr(view, 'value', getter()))
+        deferred_call(sync)
 
 
 def edit_item_size(plugin, job, item, axis, view, change):
@@ -59,6 +73,7 @@ def edit_item_size(plugin, job, item, axis, view, change):
     if item is None or item.size[axis] <= 0:
         return
     shown = lambda: to_unit(item.size[axis], plugin.units)
+    current = lambda: plugin.job is job and job.selected_uid == item.uid
     value = change['value']
     if is_echo(view, value, shown()):
         return
@@ -81,13 +96,14 @@ def edit_item_size(plugin, job, item, axis, view, change):
         plugin.workbench.message_critical(title="Invalid size", message=str(e))
         if list(item.scale) != old:
             item.scale = old
-        resync(view, shown)
+    resync(view, shown, current)
 
 
 def edit_item_padding(plugin, job, item, index, view, change):
     if item is None or len(item.weedline_padding) != 4:
         return
     shown = lambda: to_unit(job.item_padding(item)[index], plugin.units)
+    current = lambda: plugin.job is job and job.selected_uid == item.uid
     value = change['value']
     if is_echo(view, value, shown()):
         return
@@ -95,15 +111,15 @@ def edit_item_padding(plugin, job, item, index, view, change):
     padding[index] = from_unit(value, plugin.units)
     item.weedline_padding = padding
     if list(item.weedline_padding) != padding:
-        resync(view, shown)
+        resync(view, shown, current)
 
 
 def edit_layout_size(plugin, job, axis, view, change):
     shown = lambda: to_unit(job.layout_size[axis], plugin.units)
+    current = lambda: plugin.job is job
     value = change['value']
     if is_echo(view, value, shown()):
         return
-    before = job.layout_size[axis]
     try:
         target = from_unit(value, plugin.units)
         if axis == 0:
@@ -112,10 +128,7 @@ def edit_layout_size(plugin, job, axis, view, change):
             job.scale_layout(target_h=target)
     except ValueError as e:
         plugin.workbench.message_critical(title="Invalid size", message=str(e))
-        resync(view, shown)
-        return
-    if job.layout_size[axis] == before:
-        resync(view, shown)
+    resync(view, shown, current)
 
 
 def try_update_setting(plugin, view, field, index, change, title="Does not fit"):
