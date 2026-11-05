@@ -63,7 +63,7 @@ def job_start(event):
     job = event.parameters.get('job')
     if not job:
         job = workbench.get_plugin('inkcut.job').job
-    if not job.document or not job.model:
+    if not job.has_content or not job.model:
         workbench.message_warning(QApplication.translate("device", "Error starting job"),
                                   QApplication.translate("device", "No file is open! Please open a file first."))
         return

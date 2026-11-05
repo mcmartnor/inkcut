@@ -358,7 +358,7 @@ enamldef DeviceProgressDockItem(DockItem):
                 clicked ::
                     if device.busy:
                         job.info.paused = not job.info.paused
-                    elif job_plugin and job_plugin.job.document:
+                    elif job_plugin and job_plugin.job.has_content:
                         core = plugin.workbench.get_plugin("enaml.workbench.core")
                         core.invoke_command('inkcut.device.submit',
                                             parameters={'job': job_plugin.job})

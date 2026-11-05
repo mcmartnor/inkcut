@@ -441,6 +441,51 @@ enamldef WeedlinesDockItem(DockItem):
                     single_step = 0.1
 
 
+        Container:
+            visible << bool(job.items)
+            padding = 0
+            CheckBox:
+                text = QApplication.translate("job", "Weedline around each graphic")
+                checked << bool(job.items) and all([item.weedline for item in job.items])
+                toggled :: job.set_item_weedlines(self.checked)
+            Label:
+                text = QApplication.translate("job", "Graphic weedline padding")
+            Form:
+                padding = 0
+                ImageView:
+                    image = load_image('text_padding_left')
+                DoubleSpinBox:
+                    value << to_unit(job.item_weedline_padding[0], plugin.units)
+                    value :: try_update_setting(plugin, self, job.item_weedline_padding, 0, change)
+                    suffix << " "+plugin.units
+                    maximum = 99999.9
+                    single_step = 0.1
+                ImageView:
+                    image = load_image('text_padding_top')
+                DoubleSpinBox:
+                    value << to_unit(job.item_weedline_padding[1], plugin.units)
+                    value :: try_update_setting(plugin, self, job.item_weedline_padding, 1, change)
+                    suffix << " "+plugin.units
+                    maximum = 99999.9
+                    single_step = 0.1
+                ImageView:
+                    image = load_image('text_padding_right')
+                DoubleSpinBox:
+                    value << to_unit(job.item_weedline_padding[2], plugin.units)
+                    value :: try_update_setting(plugin, self, job.item_weedline_padding, 2, change)
+                    suffix << " "+plugin.units
+                    maximum = 99999.9
+                    single_step = 0.1
+                ImageView:
+                    image = load_image('text_padding_bottom')
+                DoubleSpinBox:
+                    value << to_unit(job.item_weedline_padding[3], plugin.units)
+                    value :: try_update_setting(plugin, self, job.item_weedline_padding, 3, change)
+                    suffix << " "+plugin.units
+                    maximum = 99999.9
+                    single_step = 0.1
+
+
 enamldef LayersDockItem(DockItem):
     attr plugin
     attr job: Job << plugin.job

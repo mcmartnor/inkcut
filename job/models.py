@@ -13,10 +13,14 @@ Created on Jan 16, 2015
 from __future__ import division
 import os
 import sys
+import uuid
+import re
+from copy import deepcopy
+from lxml import etree
 from datetime import datetime, timedelta
 from atom.api import (
     Enum, Float, Int, Bool, Instance, ContainerList, Range, Str,
-    Dict, Callable, observe
+    Dict, List, Callable, observe
 )
 from contextlib import contextmanager
 from enaml.qt.QtGui import QPainterPath, QTransform, QPolygonF
@@ -29,6 +33,7 @@ from inkcut.core.utils import split_painter_path, log
 
 from . import filters
 from . import ordering
+from .layout import pack_shelf
 
 
 class Material(AreaBase):
@@ -140,6 +145,65 @@ class JobInfo(Model):
         self.duration = timedelta(seconds=dt)
 
 
+class JobItem(Model):
+    """One cached source; position is its rotated visual bottom-left, x/right y/up."""
+    uid = Str().tag(config=True)
+    document = Str().tag(config=True)
+    source_document = Str().tag(config=True)
+    position = ContainerList(Float(), default=[0, 0]).tag(config=True)
+    weedline = Bool(False).tag(config=True)
+    rotation = Int(0).tag(config=True)
+    missing = Bool(False)
+    _invalid = Bool(False)
+    _loaded = Bool(False)
+    _doc = Instance(QtSvgDoc)
+
+    def _default_uid(self):
+        return uuid.uuid4().hex[:8]
+
+    def __str__(self):
+        return os.path.basename(self.source_document or self.document)
+
+    def _observe_document(self, change):
+        self._loaded = False
+        self._doc = None
+
+    def _observe_rotation(self, change):
+        rotation = self.rotation % 360
+        if rotation not in (0, 90, 180, 270):
+            log.warning("Unsupported item rotation %s; using 0", self.rotation)
+            rotation = 0
+        if self.rotation != rotation:
+            self.rotation = rotation
+
+    def load(self, **kwargs):
+        """Parse once, or after document changes / explicit reload."""
+        if not self._loaded:
+            self.missing = not os.path.isfile(self.document)
+            self._invalid = False
+            self._doc = None
+            if not self.missing:
+                try:
+                    doc = QtSvgDoc(self.document, **kwargs)
+                    if doc.isEmpty():
+                        raise ValueError('SVG has no geometry')
+                    self._doc = doc
+                except Exception as exc:
+                    self._invalid = True
+                    log.warning("Invalid SVG %s: %s", self.document, exc)
+            self._loaded = True
+        return self._doc
+
+    def rotated_geometry(self):
+        doc = self._doc
+        t = QTransform()
+        c = doc.boundingRect().center()
+        t.translate(c.x(), c.y())
+        t.rotate(self.rotation)
+        t.translate(-c.x(), -c.y())
+        return t, t.map(doc).boundingRect()
+
+
 class Job(Model):
     """ Create a plot depending on the properties set. Any property that is a
     traitlet will cause an update when the value is changed.
@@ -155,6 +219,18 @@ class Job(Model):
     #: converted copy (e.g. a PDF/AI imported via a cached SVG). The UI
     #: shows this instead of the internal cache filename.
     source_document = Str().tag(config=True)
+
+    #: Empty with assignment or del items[:]; Atom 0.12 clear() emits no event.
+    items = ContainerList(JobItem).tag(config=True)
+    item_weedline_padding = ContainerList(
+        Float(), default=[7.087, 7.087, 7.087, 7.087]).tag(config=True)
+    item_spacing = Float(7.087).tag(config=True)
+    layout_transform = Instance(QTransform)
+    layout_problems = List()
+    _watched_items = List()
+    _items_batch = Int()
+    _items_dirty = Bool()
+    _composing = Bool()
 
     #: Nodes to restrict
     document_kwargs = Dict().tag(config=True)
@@ -233,6 +309,8 @@ class Job(Model):
     _desired_copies = Int(1)  # required for auto copies
 
     def __str__(self):
+        if self.items:
+            return "%d graphics" % len(self.items)
         source = self.source_document or self.document
         if not source:
             return "Empty document"
@@ -256,15 +334,20 @@ class Job(Model):
         are not set to None. Ideally these would be defined as Typed but
         the material may be made extendable at some point.
         """
-        super(Job, self).__setstate__(*args, **kwargs)
-        if not self.info:
-            self.info = JobInfo()
-        if not self.material:
-            self.material = Material()
+        with self.batch_items():
+            super(Job, self).__setstate__(*args, **kwargs)
+            if not self.info:
+                self.info = JobInfo()
+            if not self.material:
+                self.material = Material()
 
     def _observe_document(self, change):
         """ Read the document from stdin """
         source = self.document
+        if self._composing:
+            return
+        if source and self.items:
+            self.items = []
         from inkcut.core.workbench import InkcutWorkbench
         #: State restore may set the document before the workbench and
         #: job plugin exist — fall back to the parser defaults then.
@@ -290,6 +373,234 @@ class Job(Model):
         # Recreate available filters when the document changes
         self.svg_filters = self._default_svg_filters()
         self.job_filters = self._default_job_filters()
+
+    @property
+    def has_content(self):
+        return bool(self.items) if self.items else bool(self.document)
+
+    @staticmethod
+    def item_dpi_kwargs():
+        from inkcut.core.workbench import InkcutWorkbench
+        workbench = InkcutWorkbench.instance()
+        if workbench is not None:
+            try:
+                plugin = workbench.get_plugin("inkcut.job")
+                return dict(dpi_default=plugin.dpi_default,
+                            dpi_auto_detect_inkscape=plugin.dpi_auto_detect_inkscape)
+            except Exception:
+                pass
+        return {}
+
+    @contextmanager
+    def batch_items(self):
+        """Coalesce item changes, including nested commands, into one composition."""
+        self._items_batch += 1
+        try:
+            yield
+        finally:
+            self._items_batch -= 1
+            if not self._items_batch and self._items_dirty:
+                self._items_dirty = False
+                self._compose_items()
+
+    def _request_composition(self, change=None):
+        if self._composing:
+            return
+        if self._items_batch:
+            self._items_dirty = True
+        else:
+            self._compose_items()
+
+    def _observe_items(self, change):
+        if change['type'] == 'create' and not self.items:
+            return
+        names = ('position', 'weedline', 'rotation', 'document', 'source_document')
+        for item in self._watched_items:
+            for name in names:
+                item.unobserve(name, self._request_composition)
+        existing = [item for item in self.items if item in self._watched_items]
+        seen = {item.uid for item in existing}
+        for item in self.items:
+            if item not in existing:
+                while item.uid in seen:
+                    item.uid = uuid.uuid4().hex[:8]
+                seen.add(item.uid)
+            for name in names:
+                item.observe(name, self._request_composition)
+        self._watched_items = list(self.items)
+        if self.items:
+            self._composing = True
+            try:
+                self.document = ''
+                self.source_document = ''
+            finally:
+                self._composing = False
+        self._request_composition()
+
+    def _observe_item_weedline_padding(self, change):
+        if self.items:
+            self._request_composition()
+
+    def reload_items(self):
+        for item in self.items:
+            item._loaded = False
+        self._request_composition()
+
+    def set_item_weedlines(self, enabled):
+        with self.batch_items():
+            for item in self.items:
+                item.weedline = enabled
+
+    def item_bounds(self, item, outer=True):
+        """Bounds in x/right, y/up coordinates (QRectF top means the lower y)."""
+        if item.load(**self.item_dpi_kwargs()) is None:
+            return None
+        _, bbox = item.rotated_geometry()
+        x, y = item.position
+        w, h = bbox.width(), bbox.height()
+        if outer and item.weedline:
+            left, top, right, bottom = self.item_weedline_padding
+            x, y = x - left, y - bottom
+            w, h = w + left + right, h + top + bottom
+        return QRectF(x, y, w, h)
+
+    def _update_layout_problems(self):
+        problems, bounds = [], []
+        area = self.material.available_area
+        for item in self.items:
+            if item.missing or item._invalid:
+                problems.append((item.uid, 'missing' if item.missing else 'invalid'))
+                continue
+            rect = self.item_bounds(item)
+            if rect is None:
+                continue
+            if (rect.left() < 0 or rect.top() < 0 or
+                    rect.right() > area.width() or rect.bottom() > area.height()):
+                problems.append((item.uid, 'outside'))
+            bounds.append((item.uid, rect))
+        overlaps = set()
+        for i, (uid, a) in enumerate(bounds):
+            for other, b in bounds[i + 1:]:
+                if (max(a.left(), b.left()) < min(a.right(), b.right()) and
+                        max(a.top(), b.top()) < min(a.bottom(), b.bottom())):
+                    overlaps.update((uid, other))
+        problems.extend((item.uid, 'overlap') for item in self.items if item.uid in overlaps)
+        self.layout_problems = problems
+
+    @observe('material', 'material.size', 'material.padding')
+    def _layout_area_changed(self, change):
+        if self.items and not self._composing:
+            # Source caches remain valid; update the composite viewport as well.
+            self._request_composition()
+
+    @staticmethod
+    def _svg_matrix(t):
+        return 'matrix({})'.format(','.join(format(v, '.17g') for v in
+            (t.m11(), t.m12(), t.m21(), t.m22(), t.dx(), t.dy())))
+
+    @staticmethod
+    def _filter_key(f):
+        return type(f), f.name, getattr(f, 'data', None)
+
+    def _compose_items(self):
+        if not self.items and self.document:
+            return
+        self._composing = True
+        try:
+            enabled = {self._filter_key(f): f.enabled
+                       for f in list(self.svg_filters) + list(self.job_filters)}
+            ns = 'http://www.w3.org/2000/svg'
+            ink = '{http://www.inkscape.org/namespaces/inkscape}'
+            area = self.material.available_area
+            root = etree.Element('{%s}svg' % ns, nsmap={None: ns},
+                                 width='%spx' % area.width(), height='%spx' % area.height())
+            valid = 0
+            for item in self.items:
+                doc = item.load(**self.item_dpi_kwargs())
+                if doc is None:
+                    continue
+                valid += 1
+                rotation, bbox = item.rotated_geometry()
+                source = deepcopy(doc._e)
+                source.tag = '{%s}g' % ns
+                for name in ('width', 'height', 'viewBox', 'x', 'y',
+                             'preserveAspectRatio', 'version'):
+                    source.attrib.pop(name, None)
+                source.set('transform', self._svg_matrix(doc.parseTransform(doc._e)))
+                ids = {e.get('id'): item.uid + '-' + e.get('id')
+                       for e in source.iter() if e.get('id') is not None}
+                for e in source.iter():
+                    if e.get('id') in ids:
+                        e.set('id', ids[e.get('id')])
+                    for name, value in list(e.attrib.items()):
+                        if name in ('href', '{http://www.w3.org/1999/xlink}href'):
+                            if value.startswith('#') and value[1:] in ids:
+                                value = '#' + ids[value[1:]]
+                        value = re.sub(r'url\(\s*([\'"]?)#([^\s)\'"]+)\1\s*\)',
+                                       lambda m: 'url(#%s)' % ids.get(m[2], m[2]), value)
+                        e.set(name, value)
+                    if e.tag == '{%s}g' % ns and e.get(ink + 'groupmode') == 'layer':
+                        e.set(ink + 'label', '%s [%s] / %s' %
+                              (item, item.uid, e.get(ink + 'label', '')))
+                placement = QTransform.fromTranslate(item.position[0] - bbox.left(),
+                                                      -item.position[1] - bbox.bottom())
+                outer = etree.SubElement(root, '{%s}g' % ns,
+                                         transform=self._svg_matrix(placement))
+                content = etree.SubElement(outer, '{%s}g' % ns,
+                                           transform=self._svg_matrix(rotation))
+                content.append(source)
+                if item.weedline:
+                    left, top, right, bottom = self.item_weedline_padding
+                    etree.SubElement(outer, '{%s}rect' % ns,
+                                     x=str(bbox.left() - left), y=str(bbox.top() - top),
+                                     width=str(bbox.width() + left + right),
+                                     height=str(bbox.height() + top + bottom))
+            if valid:
+                self.doc = self.path = QtSvgDoc(root, parent=True, **self.item_dpi_kwargs())
+                self.svg_filters = self._default_svg_filters()
+                self.job_filters = self._default_job_filters()
+                for f in list(self.svg_filters) + list(self.job_filters):
+                    f.enabled = enabled.get(self._filter_key(f), f.enabled)
+                self.optimized_path = self._default_optimized_path()
+            else:
+                self.doc = self.path = self.optimized_path = self.model = None
+                self.svg_filters = []
+                self.job_filters = []
+            self._update_layout_problems()
+        finally:
+            self._composing = False
+        self.update_document()
+
+    def arrange_items(self, items=None):
+        """Pack outer bounds from the anchor; appended items go above existing ones."""
+        selected = list(self.items if items is None else items)
+        bounds = [(item, self.item_bounds(item)) for item in selected]
+        bounds = [(item, rect) for item, rect in bounds if rect is not None]
+        if not bounds:
+            return
+        area = self.material.available_area
+        others = [self.item_bounds(item) for item in self.items if item not in selected]
+        others = [rect for rect in others if rect is not None]
+        start_y = max(rect.bottom() for rect in others) + self.item_spacing if others else 0
+        sizes = [(rect.width(), rect.height()) for _, rect in bounds]
+        if area.width() <= 0 or area.height() <= start_y:
+            positions, overflow = [None] * len(bounds), list(range(len(bounds)))
+        else:
+            positions, overflow = pack_shelf(sizes, area.width(),
+                                             area.height() - start_y, self.item_spacing)
+        overflow_x = 0.0
+        with self.batch_items():
+            for i, (item, rect) in enumerate(bounds):
+                if positions[i] is None:
+                    x, y = overflow_x, area.height() + self.item_spacing
+                    overflow_x += rect.width() + self.item_spacing
+                else:
+                    x, y = positions[i]
+                    y += start_y
+                if item.weedline:
+                    x += self.item_weedline_padding[Padding.LEFT]
+                    y += self.item_weedline_padding[Padding.BOTTOM]
+                item.position = [float(x), float(y)]
 
     def get_filters_from_registry(self, registry):
         results = []
@@ -341,7 +652,8 @@ class Job(Model):
         it based on the filters from the job.
 
         """
-        self.optimized_path = self._default_optimized_path()
+        if not self._composing:
+            self.optimized_path = self._default_optimized_path()
 
     def _create_copy(self):
         """ Creates a copy of the original graphic applying the given
@@ -426,7 +738,7 @@ class Job(Model):
         """ Recreate an instance of of the plot using the current settings
 
         """
-        if self._blocked:
+        if self._blocked or self._composing:
             return
 
         if change:
@@ -437,13 +749,16 @@ class Job(Model):
                 self._update_optimized_path(change)
 
         model = self.create()
-        if model:
+        if model or self.items:
             self.model = model
 
     def create(self, swap_xy=False, scale=None):
         """ Create a path model that is rotated and scaled
 
         """
+        if self.items:
+            return self._create_items(swap_xy, scale)
+
         model = QPainterPath()
 
         if not self.path:
@@ -534,6 +849,63 @@ class Job(Model):
                      if self.feed_to_end else QPointF(0, 0))
         model.moveTo(end_point)
 
+        return model
+
+    def _create_items(self, swap_xy=False, scale=None):
+        """Keep absolute placement; copies use the union of outer bounds.
+
+        Ignore job scale/mirror/rotation and auto_shift/align_center/auto_scale.
+        Positions use y/up; the composite stores (x, -y). layout_transform maps
+        those SVG coordinates to model coordinates, a translation on the UI path.
+        Device scale/swap arguments still apply to the complete layout.
+        """
+        if self.optimized_path is None or self.optimized_path.isEmpty():
+            self.model = None
+            return None
+        path = QPainterPath(self.optimized_path)
+        layout = QPainterPath(self.doc)
+        if self.copy_weedline:
+            self._add_weedline(path, self.copy_weedline_padding)
+            self._add_weedline(layout, self.copy_weedline_padding)
+        bbox = layout.boundingRect()
+        self.copy_bbox = bbox
+        self.size = [bbox.width(), bbox.height()]
+        points = self._copy_positions_iter(layout)
+        if self.auto_copies:
+            self.stack_size = self._compute_stack_sizes(layout)
+            if self.stack_size[0] and self.copies % self.stack_size[0]:
+                with self.events_suppressed():
+                    self.copies = self._desired_copies
+                    self.add_stack()
+        model = QPainterPath()
+        for _ in range(self.copies):
+            x, y = next(points)
+            model.addPath(QTransform.fromTranslate(x, -y).map(path))
+        if self.plot_weedline and not model.isEmpty():
+            self._add_weedline(model, self.plot_weedline_padding)
+        px, py = self.material.padding_left, -self.material.padding_bottom
+        t = QTransform()
+        if scale:
+            t = QTransform.fromScale(*scale)
+            px, py = px * abs(scale[0]), py * abs(scale[1])
+        if swap_xy:
+            rotation = QTransform()
+            rotation.rotate(90)
+            t = t * rotation
+            px, py = -py, -px
+        t = t * QTransform.fromTranslate(px, py)
+        if not swap_xy and scale is None:
+            self.layout_transform = t
+        model = self.apply_filters(self.job_filters, t.map(model))
+        if model.isEmpty():
+            self.model = None
+            return None
+        if not swap_xy and scale is None:
+            bbox = model.boundingRect()
+            self.final_size = [bbox.width(), bbox.height()]
+        end_point = (QPointF(0, -self.feed_after + model.boundingRect().top())
+                     if self.feed_to_end else QPointF(0, 0))
+        model.moveTo(end_point)
         return model
 
     def _check_bounds(self, plot, area):
@@ -691,5 +1063,6 @@ class Job(Model):
         state.update({
             'material': Material(**self.material.__getstate__()),
             'info': JobInfo(**self.info.__getstate__()),
+            'items': [JobItem(**item.__getstate__()) for item in self.items],
         })
         return Job(**state)

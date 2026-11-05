@@ -13,6 +13,7 @@ import textwrap
 from enaml.widgets.api import Container, Menu, Action, Feature, Label, PushButton
 from enaml.layout.api import hbox, spacer, align
 from enaml.qt.QtWidgets import QApplication
+from enaml.qt.QtCore import QUrl
 from enaml.qt.qt_mime_data import QtMimeData
 
 from enamlx.widgets.api import KeyEvent
@@ -130,10 +131,14 @@ enamldef PreviewDockItem(DockItem):
                     log.debug("drop | {}".format(mime_data.formats()))
                     if mime_data.has_format("text/uri-list"):
                         urls = mime_data.data("text/uri-list").decode('utf-8').split("\n")
-                        for url in urls:
-                            if job_plugin.can_open(url):
-                                schema, path = url.split("://")
-                                job_plugin.open_document(path)
+                        paths = [QUrl(url.strip()).toLocalFile() for url in urls
+                                 if job_plugin.can_open(url)]
+                        if len(paths) == 1 and not job_plugin.job.items:
+                            job_plugin.open_document(paths[0])
+                        elif paths:
+                            job_plugin.open_documents(paths)
+                        if paths:
+                            event.accept_proposed_action()
                 except Exception as e:
                     log.exception(e)
             KeyEvent:
@@ -143,6 +148,10 @@ enamldef PreviewDockItem(DockItem):
                         open_from_clipboard()
             Menu:
                 context_menu = True
+                Action:
+                    text = QApplication.translate("preview", "Arrange all automatically")
+                    visible << bool(job_plugin.job.items)
+                    triggered :: job_plugin.job.arrange_items()
                 Action:
                     text = QApplication.translate("preview", "View all")
                     triggered :: plot_view.proxy.widget.autoRange()

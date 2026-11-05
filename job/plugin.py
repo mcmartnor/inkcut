@@ -13,10 +13,11 @@ import os
 import sys
 import enaml
 from atom.api import Instance, Enum, List, Str, Int, Float, observe, Bool
+from enaml.qt.QtCore import QUrl
 from inkcut.core.api import Plugin, unit_conversions, log
 
 from . import importers
-from .models import Job, JobError, Material
+from .models import Job, JobItem, JobError, Material
 
 with enaml.imports():
     from enaml.workbench.ui.workbench_menus import WorkbenchMenu
@@ -94,7 +95,7 @@ class JobPlugin(Plugin):
         super(JobPlugin, self).start()
 
         #: If we loaded from state, refresh
-        if self.job.document:
+        if self.job.has_content:
             self.refresh_preview()
 
         self.init_recent_documents_menu()
@@ -121,17 +122,95 @@ class JobPlugin(Plugin):
 
     def can_open(self, url):
         """Check if the given source url can be opened"""
-        result = False
-        try:
-            if url:
-                schema, path = url.split("://")
-                if schema == "file" and os.path.exists(path):
-                    result = (path.lower().endswith(".svg")
-                              or importers.is_importable(path))
-        except Exception as e:
-            log.exception(e)
-        # log.debug("Checking if {} can be opened... {}".format(url, result))
-        return result
+        path = QUrl(url.strip()).toLocalFile() if url else ''
+        return bool(path and os.path.isfile(path) and
+                    (path.lower().endswith('.svg') or importers.is_importable(path)))
+
+    def _convert_items_sync(self, paths):
+        """Worker-thread part: PDF/AI conversion only (no Qt objects)."""
+        converted = []
+        for path in paths:
+            try:
+                load_path, pages = path, None
+                if importers.is_importable(path):
+                    load_path, pages = importers.convert_to_svg_info(path)
+                converted.append((path, load_path, pages, None))
+            except Exception as exc:
+                converted.append((path, None, None, exc))
+        return converted
+
+    def _load_items_sync(self, paths):
+        """Isolate each conversion/parse failure; preserve successful input order."""
+        return self._parse_converted(self._convert_items_sync(paths))
+
+    def _parse_converted(self, converted):
+        """Main-thread part: SVG parsing may create QFont (text nodes)."""
+        items, errors, warnings = [], [], []
+        for path, load_path, pages, error in converted:
+            try:
+                if error is not None:
+                    raise error
+                item = JobItem(document=load_path, source_document=path)
+                if item.load(dpi_default=self.dpi_default,
+                             dpi_auto_detect_inkscape=self.dpi_auto_detect_inkscape) is None:
+                    raise JobError('File missing' if item.missing else 'Invalid or empty SVG')
+                items.append(item)
+                if pages and pages > 1:
+                    warnings.append('{} has {} pages; only page 1 was imported.'.format(
+                        os.path.basename(path), pages))
+            except Exception as exc:
+                errors.append('{}: {}'.format(path, exc))
+        return items, errors, warnings
+
+    def open_documents(self, paths):
+        """Import a set in one worker; newer opens invalidate the whole result."""
+        from enaml.application import Application
+        self._open_generation += 1
+        generation = self._open_generation
+        paths = list(paths)
+
+        def loaded(result):
+            if generation != self._open_generation:
+                return
+            if not isinstance(result, tuple):
+                result = self._parse_converted(result)
+            items, errors, warnings = result
+            if items:
+                if self.job.items:
+                    job = self.job
+                    with job.batch_items():
+                        job.items.extend(items)
+                        job.arrange_items(items)
+                else:
+                    job = self._default_job()
+                    with job.batch_items():
+                        job.items = items
+                        job.arrange_items()
+                    self.job = job
+                docs = self.recent_documents[:]
+                for item in items:
+                    path = item.source_document
+                    if path in docs:
+                        docs.remove(path)
+                    docs.append(path)
+                    if len(docs) > self.recent_document_limit:
+                        docs.pop(0)
+                self.recent_documents = docs
+            messages = errors + warnings
+            if messages:
+                if self.workbench is not None:
+                    self.workbench.message_warning(
+                        title='Opening documents', message='\n'.join(messages))
+                else:
+                    log.warning('\n'.join(messages))
+            return result
+
+        if Application.instance() is None:
+            return loaded(self._load_items_sync(paths))
+        from inkcut.core.utils import defer_to_thread
+        d = defer_to_thread(self._convert_items_sync, paths)
+        d.addCallback(loaded)
+        return d
 
     def open_document(self, path, nodes=None):
         """Set the job.document if it is empty, otherwise close and create
