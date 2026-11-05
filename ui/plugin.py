@@ -22,6 +22,7 @@ from enaml.application import timed_call
 
 from inkcut.core.api import Plugin, DockItem, log
 from inkcut.core.utils import load_icon
+from inkcut.core.theme import Theme, effective_dock_style
 from . import extensions
 
 with enaml.imports():
@@ -139,6 +140,10 @@ class InkcutPlugin(Plugin):
     dock_layout = Instance(AreaLayout)
     dock_style = Enum(*reversed(ALL_STYLES)).tag(config=True)
 
+    #: The style in use: 'system' while the palette is dark
+    effective_dock_style = Str()
+    _theme = Instance(Theme)
+
     #: Settings pages to add
     settings_pages = List(extensions.SettingsPage)
 
@@ -163,7 +168,24 @@ class InkcutPlugin(Plugin):
         self._refresh_dock_items()
         self._refresh_settings_pages()
         super(InkcutPlugin, self).start()
+        self._theme = Theme.instance()
+        if self._theme is not None:
+            self._theme.observe('dark', self._refresh_effective_dock_style)
+        self._refresh_effective_dock_style()
         self._register_settings_menu()
+
+    def stop(self):
+        if self._theme is not None:
+            self._theme.unobserve('dark', self._refresh_effective_dock_style)
+            self._theme = None
+        super(InkcutPlugin, self).stop()
+
+    def _observe_dock_style(self, change):
+        self._refresh_effective_dock_style()
+
+    def _refresh_effective_dock_style(self, change=None):
+        dark = self._theme is not None and self._theme.dark
+        self.effective_dock_style = effective_dock_style(self.dock_style, dark)
 
     def _register_settings_menu(self):
         """ Register the checkable Settings menu items.

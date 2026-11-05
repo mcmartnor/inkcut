@@ -18,6 +18,7 @@ from enaml.stdlib.dock_area_styles import (
 )
 from enaml.qt import QT_API
 from inkcut.core.api import DockArea, DockItem
+from inkcut.core.theme import Theme, effective_dock_style
 
 
 IS_QT4 = QT_API in ('pyside', 'pyside2')
@@ -54,10 +55,32 @@ if 'system' not in available_styles():
     register_styles('system', SystemStyle)
 
 
-enamldef DockView(DockArea):
+enamldef DockView(DockArea): area:
     attr workbench
     attr plugin
-    style << plugin.dock_style
+    attr theme = Theme.instance()
+    #: Palette darkness the current style sheet was made for
+    attr theme_dark = False
+    style << plugin.effective_dock_style
     layout << plugin.dock_layout
+
+    func restyle_on_palette(change):
+        # The system style reads the palette when it is created, so
+        # create it again when the palette changes and it stays in use.
+        was = effective_dock_style(plugin.dock_style, theme_dark)
+        area.theme_dark = theme.dark
+        if style == 'system' and was == 'system':
+            area.style = ''
+            area.style = 'system'
+
+    func unhook_theme(change):
+        theme.unobserve('revision', restyle_on_palette)
+
+    initialized ::
+        if theme is not None:
+            area.theme_dark = theme.dark
+            theme.observe('revision', restyle_on_palette)
+            area.observe('destroyed', unhook_theme)
+
     Include:
         objects << plugin.dock_items

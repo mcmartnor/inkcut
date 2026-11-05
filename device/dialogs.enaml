@@ -297,7 +297,7 @@ enamldef DeviceDialog(Dialog): dialog:
 
     Conditional:
         # Only use this if not using the system theme
-        condition << not (plugin.workbench.get_plugin('inkcut.ui').dock_style == 'system')
+        condition << plugin.workbench.get_plugin('inkcut.ui').effective_dock_style != 'system'
         TaskDialogStyleSheet:
                 pass
     TaskDialogBody:
