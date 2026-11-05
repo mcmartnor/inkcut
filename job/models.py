@@ -506,8 +506,10 @@ class Job(Model):
             rect = self.item_bounds(item)
             if rect is None:
                 continue
-            if (rect.left() < 0 or rect.top() < 0 or
-                    rect.right() > area.width() or rect.bottom() > area.height()):
+            eps = 1e-6  # snapped edges may be off by a few ulp
+            if (rect.left() < -eps or rect.top() < -eps or
+                    rect.right() > area.width() + eps or
+                    rect.bottom() > area.height() + eps):
                 problems.append((item.uid, 'outside'))
             bounds.append((item.uid, rect))
         overlaps = set()

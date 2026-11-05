@@ -40,9 +40,13 @@ class LayoutEditor:
 
     def refresh_transform(self):
         basis = [(0., 0.), (1., 0.), (0., 1.)]
-        coefficients = affine_from_points(basis, [point_tuple(self.to_display(p)) for p in basis])
+        try:
+            coefficients = affine_from_points(
+                basis, [point_tuple(self.to_display(p)) for p in basis])
+            inverse = invert_affine(coefficients)
+        except ValueError:
+            coefficients, inverse = (1., 0., 0., 1., 0., 0.), None
         self.transform = QTransform(*coefficients)
-        inverse = invert_affine(coefficients)
         self.inverse = QTransform(*inverse) if inverse is not None else None
         self.inverse_scale = (max(hypot(inverse[0], inverse[1]),
                                   hypot(inverse[2], inverse[3])) if inverse else 0)
@@ -52,6 +56,8 @@ class LayoutEditor:
                 if self.job.item_bounds(item) is not None and not item.missing and not item._invalid]
 
     def item_rects_display(self):
+        if self.inverse is None:
+            return []  # singular display transform: editing disabled
         return [self.transform.mapRect(self.job.item_bounds(item)) for item in self.valid_items()]
 
     def item_at(self, display_pt, view_px=1.0):
@@ -99,7 +105,7 @@ class LayoutEditor:
                              self.job.item_snap_grid, edges_x, edges_y,
                              8 * view_px * self.inverse_scale)
             x, y = x - ox, y - oy
-        self.pending_position = (x, y)
+        self.pending_position = (round(x, 9), round(y, 9))
 
     def end_drag(self):
         item, position = self.item, self.pending_position
