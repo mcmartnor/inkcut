@@ -3,11 +3,11 @@ Distributed under the terms of the GPL v3 License.
 
 The full license is in the file LICENSE, distributed with this software.
 
-Shared panel widgets: a scroll area for the dock panels and the dark
-input field styles.
+Shared panel widgets: a scroll area for the dock panels, the header of
+a collapsible section and the dark input field styles.
 """
 from enaml.styling import StyleSheet, Style, Setter
-from enaml.widgets.api import ScrollArea
+from enaml.widgets.api import ScrollArea, ToolButton
 from enaml.qt.QtWidgets import QWidget
 from inkcut.core.theme import PANEL_COLORS
 
@@ -35,6 +35,27 @@ enamldef PanelScroll(ScrollArea):
         corner = QWidget()
         corner.setAutoFillBackground(False)
         widget.setCornerWidget(corner)
+
+
+enamldef SectionHeader(ToolButton):
+    """ The header of a collapsible panel section: shows or hides the
+    Section below it (bind its visible to the header's expanded).
+
+    """
+    attr title = ''
+    attr expanded: bool = True
+    auto_raise = True
+    checkable = True
+    checked := expanded
+    button_style = 'text_only'
+    hug_width = 'ignore'
+    style_class = 'section-header'
+    #: '&' is shown, not taken as a mnemonic
+    text << ('▾ ' if expanded else '▸ ') + title.replace('&', '&&')
+    activated :: self.proxy.widget.setAccessibleName(title)
+    title ::
+        if self.proxy_is_active:
+            self.proxy.widget.setAccessibleName(title)
 
 
 enamldef DarkWidgetStyles(StyleSheet):
