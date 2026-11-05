@@ -33,7 +33,7 @@ from inkcut.core.utils import split_painter_path, log
 
 from . import filters
 from . import ordering
-from .layout import pack_shelf
+from .layout import pack_best
 
 
 class Material(AreaBase):
@@ -194,12 +194,12 @@ class JobItem(Model):
             self._loaded = True
         return self._doc
 
-    def rotated_geometry(self):
+    def rotated_geometry(self, rotation=None):
         doc = self._doc
         t = QTransform()
         c = doc.boundingRect().center()
         t.translate(c.x(), c.y())
-        t.rotate(self.rotation)
+        t.rotate(self.rotation if rotation is None else rotation)
         t.translate(-c.x(), -c.y())
         return t, t.map(doc).boundingRect()
 
@@ -225,6 +225,8 @@ class Job(Model):
     item_weedline_padding = ContainerList(
         Float(), default=[7.087, 7.087, 7.087, 7.087]).tag(config=True)
     item_spacing = Float(7.087).tag(config=True)
+    item_allow_rotation = Bool(True).tag(config=True)
+    item_snap_grid = Float(3.5433).tag(config=True)
     layout_transform = Instance(QTransform)
     layout_problems = List()
     _watched_items = List()
@@ -455,11 +457,11 @@ class Job(Model):
             for item in self.items:
                 item.weedline = enabled
 
-    def item_bounds(self, item, outer=True):
+    def item_bounds(self, item, outer=True, rotation=None):
         """Bounds in x/right, y/up coordinates (QRectF top means the lower y)."""
         if item.load(**self.item_dpi_kwargs()) is None:
             return None
-        _, bbox = item.rotated_geometry()
+        _, bbox = item.rotated_geometry(rotation)
         x, y = item.position
         w, h = bbox.width(), bbox.height()
         if outer and item.weedline:
@@ -467,6 +469,32 @@ class Job(Model):
             x, y = x - left, y - bottom
             w, h = w + left + right, h + top + bottom
         return QRectF(x, y, w, h)
+
+    def layout_problem_text(self, problems):
+        labels = [('outside', 'graphics outside the sheet'),
+                  ('overlap', 'graphics overlapping'),
+                  ('missing', 'files missing'), ('invalid', 'files invalid')]
+        counts = {reason: sum(kind == reason for _, kind in problems)
+                  for reason, _ in labels}
+        return '\n'.join('%d %s' % (counts[reason], label)
+                         for reason, label in labels if counts[reason])
+
+    def item_cut_path(self, item):
+        """Snapshot of one graphic in model coordinates, with current filters.
+
+        Used once at drag start; leaves the composite and model untouched.
+        """
+        valid = [it for it in self.items if it._doc is not None]
+        if self.doc is None or item not in valid or self.layout_transform is None:
+            return QPainterPath()
+        root = deepcopy(self.doc._e)
+        index = valid.index(item)
+        for i, group in enumerate(list(root)):
+            if i != index:
+                root.remove(group)
+        path = QtSvgDoc(root, parent=True, **self.item_dpi_kwargs())
+        path = self.apply_filters(self.svg_filters, path)
+        return self.apply_filters(self.job_filters, self.layout_transform.map(path))
 
     def _update_layout_problems(self):
         problems, bounds = [], []
@@ -579,7 +607,10 @@ class Job(Model):
     def arrange_items(self, items=None):
         """Pack outer bounds from the anchor; appended items go above existing ones."""
         selected = list(self.items if items is None else items)
-        bounds = [(item, self.item_bounds(item)) for item in selected]
+        bases = {item.uid: (item.rotation if item.rotation % 180 == 0
+                            else item.rotation - 90) for item in selected}
+        bounds = [(item, self.item_bounds(item, rotation=bases[item.uid]))
+                  for item in selected]
         bounds = [(item, rect) for item, rect in bounds if rect is not None]
         if not bounds:
             return
@@ -588,24 +619,36 @@ class Job(Model):
         others = [rect for rect in others if rect is not None]
         start_y = max(rect.bottom() for rect in others) + self.item_spacing if others else 0
         sizes = [(rect.width(), rect.height()) for _, rect in bounds]
+        rotated_sizes = None
+        if self.item_allow_rotation:
+            rotated = [self.item_bounds(item, rotation=bases[item.uid] + 90)
+                       for item, _ in bounds]
+            rotated_sizes = [(rect.width(), rect.height()) for rect in rotated]
         if area.width() <= 0 or area.height() <= start_y:
             positions, overflow = [None] * len(bounds), list(range(len(bounds)))
         else:
-            positions, overflow = pack_shelf(sizes, area.width(),
-                                             area.height() - start_y, self.item_spacing)
+            positions, overflow = pack_best(sizes, area.width(),
+                                            area.height() - start_y, self.item_spacing,
+                                            rotated_sizes)
         overflow_x = 0.0
         with self.batch_items():
             for i, (item, rect) in enumerate(bounds):
                 if positions[i] is None:
                     x, y = overflow_x, area.height() + self.item_spacing
                     overflow_x += rect.width() + self.item_spacing
+                    rotated = False
                 else:
-                    x, y = positions[i]
+                    x, y, rotated = positions[i]
                     y += start_y
+                rotation = (bases[item.uid] + (90 if rotated else 0)) % 360
+                if item.rotation != rotation:
+                    item.rotation = rotation
                 if item.weedline:
                     x += self.item_weedline_padding[Padding.LEFT]
                     y += self.item_weedline_padding[Padding.BOTTOM]
-                item.position = [float(x), float(y)]
+                position = [float(x), float(y)]
+                if item.position != position:
+                    item.position = position
 
     def get_filters_from_registry(self, registry):
         results = []

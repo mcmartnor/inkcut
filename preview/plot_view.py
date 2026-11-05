@@ -19,6 +19,7 @@ from enaml.core.declarative import d_
 from enaml.qt.qt_application import QtApplication
 from enaml.qt.qt_control import QtControl
 from enaml.qt import QtGui
+from enaml.qt.QtCore import QEvent
 from enaml.widgets.control import Control, ProxyControl
 from pyqtgraph.widgets.PlotWidget import PlotWidget
 from pyqtgraph.graphicsItems.PlotCurveItem import PlotCurveItem
@@ -116,6 +117,9 @@ class ProxyPlotView(ProxyControl):
     def set_data(self, data):
         raise NotImplementedError
 
+    def set_overlay(self, overlay):
+        raise NotImplementedError
+
     def set_antialiasing(self, enabled):
         raise NotImplementedError
 
@@ -131,6 +135,7 @@ class PlotView(Control):
     hug_height = set_default('ignore')
     proxy = Typed(ProxyPlotView)
     data = d_(ContainerList())
+    overlay = d_(Typed(object))
     setup = d_(Callable(lambda graph: None))
 
     title = d_(Str())
@@ -157,12 +162,43 @@ class PlotView(Control):
     multi_axis = d_(Bool(True))
 
     @observe('data', 'title', 'labels', 'multi_axis', 'antialiasing',
-             'axis_scales', 'grid', 'grid_alpha', 'mouse_mode')
+             'axis_scales', 'grid', 'grid_alpha', 'mouse_mode', 'overlay')
     def _update_proxy(self, change):
         """ An observer which sends state change to the proxy.
         """
-        # The superclass handler implementation is sufficient.
+        if change['name'] == 'overlay' and not self.proxy_is_active:
+            old, new = change.get('oldvalue'), change.get('value')
+            if old is not None and old is not new:
+                if new is not None:
+                    new.editor.selected_uid = old.editor.selected_uid
+                old.dispose()
         super(PlotView, self)._update_proxy(change)
+
+
+class LayoutPlotWidget(PlotWidget):
+    """Suppress QWidget's separate context menu only over editable graphics."""
+    layout_overlay = None
+
+    def _item_context_event(self, event, viewport=False):
+        overlay = self.layout_overlay
+        if event.type() != QEvent.ContextMenu or overlay is None:
+            return False
+        pos = event.pos() if viewport else self.viewport().mapFrom(self, event.pos())
+        point = overlay.mapFromScene(self.mapToScene(pos))
+        if overlay.editor.item_at(point, overlay.view_px()) is None:
+            return False
+        event.accept()
+        return True
+
+    def event(self, event):
+        if self._item_context_event(event):
+            return True
+        return super().event(event)
+
+    def viewportEvent(self, event):
+        if self._item_context_event(event, viewport=True):
+            return True
+        return super().viewportEvent(event)
 
 
 class QtPlotView(QtControl, ProxyPlotView):
@@ -172,7 +208,25 @@ class QtPlotView(QtControl, ProxyPlotView):
     _colors = List(default=['r', 'g', 'b'])
 
     def create_widget(self):
-        self.widget = PlotWidget(self.parent_widget(), background='w')
+        self.widget = LayoutPlotWidget(self.parent_widget(), background='w')
+
+    def destroy(self):
+        if self.widget is not None:
+            self.set_overlay(None)
+        elif self.declaration.overlay is not None:
+            self.declaration.overlay.dispose()
+        super().destroy()
+
+    def set_overlay(self, overlay):
+        old = self.widget.layout_overlay
+        if old is not None and old is not overlay:
+            if overlay is not None:
+                overlay.editor.selected_uid = old.editor.selected_uid
+            self.widget.removeItem(old)
+            old.dispose()
+        self.widget.layout_overlay = overlay
+        if overlay is not None and overlay not in self.widget.plotItem.items:
+            self.widget.addItem(overlay, ignoreBounds=overlay.skip_autorange)
 
     def init_widget(self):
         super(QtPlotView, self).init_widget()
@@ -248,14 +302,13 @@ class QtPlotView(QtControl, ProxyPlotView):
 
     def set_data(self, data):
         self.widget.clear()
-        if not data:
-            return
-
-        if isinstance(data, (list, tuple)) and \
-                isinstance(data[0], GraphicsObject):
-            self._set_graphic_items(data)
-        else:
-            self._set_numeric_data(data)
+        if data:
+            if isinstance(data, (list, tuple)) and \
+                    isinstance(data[0], GraphicsObject):
+                self._set_graphic_items(data)
+            else:
+                self._set_numeric_data(data)
+        self.set_overlay(self.declaration.overlay)
 
     def _set_graphic_items(self, items):
         self.widget.clear()

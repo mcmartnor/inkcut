@@ -6,7 +6,7 @@ Created on Jul 25, 2015
 """
 import enaml
 import traceback
-from enaml.qt.QtWidgets import QApplication
+from enaml.qt.QtWidgets import QApplication, QMessageBox
 from enaml.workbench.api import Extension, PluginManifest, ExtensionPoint
 from enaml.workbench.core.api import Command
 from enaml.workbench.ui.api import ActionItem, MenuItem, ItemGroup, Autostart
@@ -67,6 +67,14 @@ def job_start(event):
         workbench.message_warning(QApplication.translate("device", "Error starting job"),
                                   QApplication.translate("device", "No file is open! Please open a file first."))
         return
+
+    if job.items and job.layout_problems:
+        answer = workbench.message_question(
+            QApplication.translate("device", "Layout problems"),
+            QApplication.translate("device", "Some graphics are outside the sheet, overlap or are missing. Cut anyway?"),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if answer != QMessageBox.Yes:
+            return
 
     plugin = workbench.get_plugin('inkcut.device')
     device = plugin.device

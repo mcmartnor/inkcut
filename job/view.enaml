@@ -444,6 +444,23 @@ enamldef WeedlinesDockItem(DockItem):
         Container:
             visible << bool(job.items)
             padding = 0
+            Label:
+                visible << bool(job.layout_problems)
+                text << job.layout_problem_text(job.layout_problems)
+            CheckBox:
+                text = QApplication.translate("job", "Allow rotating when arranging")
+                checked := job.item_allow_rotation
+            Form:
+                padding = 0
+                Label:
+                    text = QApplication.translate("job", "Snap grid")
+                DoubleSpinBox:
+                    value << to_unit(job.item_snap_grid, plugin.units)
+                    value :: job.item_snap_grid = from_unit(change['value'], plugin.units)
+                    suffix << " "+plugin.units
+                    minimum = 0
+                    maximum = 99999.9
+                    single_step = 0.1
             CheckBox:
                 text = QApplication.translate("job", "Weedline around each graphic")
                 checked << bool(job.items) and all([item.weedline for item in job.items])
