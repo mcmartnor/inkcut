@@ -32,7 +32,7 @@ def preview_colors(dark, base=None):
         }
     return {
         'background': QColor('#1e1e1e') if base is None else base,
-        'media': (170, 170, 170),
+        'media': (210, 210, 210),
         'media_padding': (170, 170, 170),
         'device': (235, 194, 194),
         'up': {'hsv': (0.53, 1, 1.0, 0.6)},
