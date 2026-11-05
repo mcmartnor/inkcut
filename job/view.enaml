@@ -31,6 +31,93 @@ from inkcut.core.utils import (
 from inkcut.job.plugin import Job
 
 
+def selected_item(items, uid):
+    return next((item for item in items if item.uid == uid), None) if uid else None
+
+
+def problem_uids(problems):
+    return {uid for uid, _ in problems}
+
+
+def is_echo(view, value, model_value):
+    """A value equal to the displayed model value (exact or as the spin box
+    rounds it) comes from a binding, not from the user."""
+    return value == model_value or value == round(model_value, view.decimals)
+
+
+def resync(view, getter):
+    """Show the model value again once the signal handling is done."""
+    from enaml.application import deferred_call, Application
+    if Application.instance() is None:
+        view.value = getter()
+    else:
+        deferred_call(lambda: setattr(view, 'value', getter()))
+
+
+def edit_item_size(plugin, job, item, axis, view, change):
+    """Width (axis 0) / height (axis 1) of one copy of the selected item."""
+    if item is None or item.size[axis] <= 0:
+        return
+    shown = lambda: to_unit(item.size[axis], plugin.units)
+    value = change['value']
+    if is_echo(view, value, shown()):
+        return
+    old = list(item.scale)
+    try:
+        if value <= 0:
+            raise ValueError("The size must be larger than 0")
+        k = from_unit(value, plugin.units) / item.size[axis]
+        if item.lock_scale:
+            scale = [old[0] * k, old[1] * k]
+        else:
+            #: The visible width follows scale[1] when the file is turned 90°
+            control = axis if item.rotation % 180 == 0 else 1 - axis
+            scale = list(old)
+            scale[control] = old[control] * k
+        item.scale = scale
+        if list(item.scale) != scale:
+            raise ValueError("Invalid size")
+    except Exception as e:
+        plugin.workbench.message_critical(title="Invalid size", message=str(e))
+        if list(item.scale) != old:
+            item.scale = old
+        resync(view, shown)
+
+
+def edit_item_padding(plugin, job, item, index, view, change):
+    if item is None or len(item.weedline_padding) != 4:
+        return
+    shown = lambda: to_unit(job.item_padding(item)[index], plugin.units)
+    value = change['value']
+    if is_echo(view, value, shown()):
+        return
+    padding = list(item.weedline_padding)
+    padding[index] = from_unit(value, plugin.units)
+    item.weedline_padding = padding
+    if list(item.weedline_padding) != padding:
+        resync(view, shown)
+
+
+def edit_layout_size(plugin, job, axis, view, change):
+    shown = lambda: to_unit(job.layout_size[axis], plugin.units)
+    value = change['value']
+    if is_echo(view, value, shown()):
+        return
+    before = job.layout_size[axis]
+    try:
+        target = from_unit(value, plugin.units)
+        if axis == 0:
+            job.scale_layout(target_w=target)
+        else:
+            job.scale_layout(target_h=target)
+    except ValueError as e:
+        plugin.workbench.message_critical(title="Invalid size", message=str(e))
+        resync(view, shown)
+        return
+    if job.layout_size[axis] == before:
+        resync(view, shown)
+
+
 def try_update_setting(plugin, view, field, index, change, title="Does not fit"):
     """ Try to update the field with the given index and change. If it fails with a JobError,
     revert
@@ -52,6 +139,178 @@ enamldef GraphicDockItem(DockItem):
     title = QApplication.translate("job", "Graphic")
     Container:
         Container:
+            #: Multi-file layout: total size, file list and the selected file
+            visible << bool(job.items)
+            padding = 0
+            Label:
+                text = QApplication.translate("job", "Layout width / height")
+            Form:
+                padding = 0
+                ImageView:
+                    image = load_image('text_letterspacing')
+                DoubleSpinBox: layout_w:
+                    value << to_unit(job.layout_size[0], plugin.units)
+                    value :: edit_layout_size(plugin, job, 0, self, change)
+                    enabled << job.layout_size[0] > 0
+                    suffix << " "+plugin.units
+                    minimum = 0
+                    maximum = 99999.9
+                ImageView:
+                    image = load_image('text_linespacing')
+                DoubleSpinBox: layout_h:
+                    value << to_unit(job.layout_size[1], plugin.units)
+                    value :: edit_layout_size(plugin, job, 1, self, change)
+                    enabled << job.layout_size[1] > 0
+                    suffix << " "+plugin.units
+                    minimum = 0
+                    maximum = 99999.9
+            Label:
+                text = QApplication.translate("job", "Files")
+            Looper:
+                iterable << list(job.items)
+                Container:
+                    padding = 0
+                    constraints = [hbox(current, row, marker, spacer),
+                                   align('v_center', current, row, marker)]
+                    #: Selection marker; not a checkable button, whose checked
+                    #: binding a click would overwrite
+                    Label: current:
+                        text = "▶"
+                        foreground = '#1976d2'
+                        visible << job.selected_uid == loop_item.uid
+                    PushButton: row:
+                        text << str(loop_item) + (" ×%d" % loop_item.copies if loop_item.copies > 1 else "")
+                        clicked :: job.selected_uid = loop_item.uid
+                    Label: marker:
+                        text = "●"
+                        foreground = '#d32f2f'
+                        visible << loop_item.uid in problem_uids(job.layout_problems)
+            Container: item_form:
+                attr sel << selected_item(job.items, job.selected_uid)
+                visible << sel is not None
+                padding = 0
+                Label:
+                    text << str(sel) if sel is not None else ""
+                Form:
+                    padding = 0
+                    Label:
+                        text = QApplication.translate("job", "Width")
+                    DoubleSpinBox: item_w:
+                        value << to_unit(sel.size[0], plugin.units) if sel is not None else 0
+                        value :: edit_item_size(plugin, job, sel, 0, self, change)
+                        enabled << sel is not None and sel.size[0] > 0
+                        suffix << " "+plugin.units
+                        minimum = 0
+                        maximum = 99999.9
+                    Label:
+                        text = QApplication.translate("job", "Height")
+                    DoubleSpinBox: item_h:
+                        value << to_unit(sel.size[1], plugin.units) if sel is not None else 0
+                        value :: edit_item_size(plugin, job, sel, 1, self, change)
+                        enabled << sel is not None and sel.size[1] > 0
+                        suffix << " "+plugin.units
+                        minimum = 0
+                        maximum = 99999.9
+                CheckBox: item_lock:
+                    text = QApplication.translate("job", "Lock aspect ratio")
+                    checked << sel.lock_scale if sel is not None else True
+                    toggled ::
+                        if sel is not None:
+                            sel.lock_scale = change['value']
+                CheckBox: item_frame:
+                    text = QApplication.translate("job", "Frame (weedline)")
+                    checked << sel.weedline if sel is not None else False
+                    toggled ::
+                        if sel is not None and sel.weedline != change['value']:
+                            sel.weedline = change['value']
+                CheckBox: item_own:
+                    text = QApplication.translate("job", "Own spacing")
+                    checked << len(sel.weedline_padding) == 4 if sel is not None else False
+                    toggled ::
+                        if sel is not None:
+                            if change['value'] and len(sel.weedline_padding) != 4:
+                                sel.weedline_padding = job.item_padding(sel)
+                            elif not change['value'] and sel.weedline_padding:
+                                sel.weedline_padding = []
+                Form:
+                    padding = 0
+                    ImageView:
+                        image = load_image('text_padding_left')
+                    DoubleSpinBox:
+                        value << to_unit((sel.weedline_padding if len(sel.weedline_padding) == 4 else job.item_weedline_padding)[0], plugin.units) if sel is not None else 0
+                        value :: edit_item_padding(plugin, job, sel, 0, self, change)
+                        enabled << item_own.checked
+                        suffix << " "+plugin.units
+                        maximum = 99999.9
+                        single_step = 0.1
+                    ImageView:
+                        image = load_image('text_padding_top')
+                    DoubleSpinBox:
+                        value << to_unit((sel.weedline_padding if len(sel.weedline_padding) == 4 else job.item_weedline_padding)[1], plugin.units) if sel is not None else 0
+                        value :: edit_item_padding(plugin, job, sel, 1, self, change)
+                        enabled << item_own.checked
+                        suffix << " "+plugin.units
+                        maximum = 99999.9
+                        single_step = 0.1
+                    ImageView:
+                        image = load_image('text_padding_right')
+                    DoubleSpinBox:
+                        value << to_unit((sel.weedline_padding if len(sel.weedline_padding) == 4 else job.item_weedline_padding)[2], plugin.units) if sel is not None else 0
+                        value :: edit_item_padding(plugin, job, sel, 2, self, change)
+                        enabled << item_own.checked
+                        suffix << " "+plugin.units
+                        maximum = 99999.9
+                        single_step = 0.1
+                    ImageView:
+                        image = load_image('text_padding_bottom')
+                    DoubleSpinBox:
+                        value << to_unit((sel.weedline_padding if len(sel.weedline_padding) == 4 else job.item_weedline_padding)[3], plugin.units) if sel is not None else 0
+                        value :: edit_item_padding(plugin, job, sel, 3, self, change)
+                        enabled << item_own.checked
+                        suffix << " "+plugin.units
+                        maximum = 99999.9
+                        single_step = 0.1
+                Form:
+                    padding = 0
+                    Label:
+                        text = QApplication.translate("job", "Rotation")
+                    ObjectCombo: item_rotation:
+                        items = [0, 90, 180, 270]
+                        to_string = lambda r: "%d °" % r
+                        selected << sel.rotation if sel is not None else 0
+                        selected ::
+                            if sel is not None and change['value'] != sel.rotation:
+                                job.set_item_rotation(sel, change['value'])
+                    Label:
+                        text = QApplication.translate("job", "Copies")
+                    SpinBox: item_copies:
+                        value << sel.copies if sel is not None else 1
+                        value ::
+                            if sel is not None and change['value'] != sel.copies:
+                                sel.copies = change['value']
+                        minimum = 1
+                        maximum = 99999
+                Container:
+                    padding = 0
+                    constraints = [hbox(fx, fy, spacer)]
+                    PushButton: fx:
+                        checkable = True
+                        text = QApplication.translate("job", "Flip X")
+                        icon = load_icon('shape_flip_horizontal')
+                        checked << sel.mirror[0] if sel is not None else False
+                        toggled ::
+                            if sel is not None and sel.mirror[0] != change['value']:
+                                sel.mirror = [change['value'], sel.mirror[1]]
+                    PushButton: fy:
+                        checkable = True
+                        text = QApplication.translate("job", "Flip Y")
+                        icon = load_icon('shape_flip_vertical')
+                        checked << sel.mirror[1] if sel is not None else False
+                        toggled ::
+                            if sel is not None and sel.mirror[1] != change['value']:
+                                sel.mirror = [sel.mirror[0], change['value']]
+        Container:
+            visible << not job.items
             padding = 0
             Label:
                 text = QApplication.translate("job", "Graphic Size")
@@ -263,6 +522,7 @@ enamldef GraphicDockItem(DockItem):
                 checked := job.auto_copies
 
         Container:
+            visible << not job.items
             padding = 0
             Label:
                 text = QApplication.translate("job", "Graphic Rotation")
@@ -322,6 +582,7 @@ enamldef GraphicDockItem(DockItem):
                 text = QApplication.translate("job", "Rotate to save space")
                 checked := job.auto_rotate
         Container:
+            visible << not job.items
             padding = 0
 
             Label:
@@ -665,14 +926,17 @@ enamldef MaterialDockItem(DockItem):
             Label:
                 text = QApplication.translate("job", "Plot Alignment")
             CheckBox:
+                visible << not job.items
                 text = QApplication.translate("job", 'Shift to origin')
                 icon = load_icon('shape_align_left')
                 checked := job.auto_shift
             CheckBox:
+                visible << not job.items
                 text = QApplication.translate("job", 'Align center horizontally')
                 icon = load_icon('shape_align_center')
                 checked := job.align_center[0]
             CheckBox:
+                visible << not job.items
                 text = QApplication.translate("job", 'Align center vertically')
                 icon = load_icon('shape_align_middle')
                 checked := job.align_center[1]
