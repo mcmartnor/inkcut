@@ -835,10 +835,12 @@ enamldef LayersDockItem(DockItem):
         padding = 0
         PanelScroll:
             Container:
-                Container:
+                SectionHeader: h_layers:
+                    name = 'section-layers'
+                    title = QApplication.translate("job", "Layers")
+                Section:
+                    visible << h_layers.expanded
                     padding = 0
-                    Label:
-                        text = QApplication.translate("job", "Layers")
                     Looper:
                         iterable << [f for f in filters if f.type == 'layer']
                         CheckBox: cb:
@@ -869,10 +871,12 @@ enamldef LayersDockItem(DockItem):
                                     #minimum = -9999
                                     #maximum = 9999
                                     #single_step = 10
-                Container:
+                SectionHeader: h_fill:
+                    name = 'section-fill-colors'
+                    title = QApplication.translate("job", "Fill Colors")
+                Section:
+                    visible << h_fill.expanded
                     padding = 0
-                    Label:
-                        text = QApplication.translate("job", "Fill Colors")
                     Form:
                         padding = 0
                         Looper:
@@ -884,10 +888,12 @@ enamldef LayersDockItem(DockItem):
                                 checked := color_filter.enabled
                                 toggled :: job.update_document({'name': 'color'})
 
-                Container:
+                SectionHeader: h_stroke:
+                    name = 'section-stroke-colors'
+                    title = QApplication.translate("job", "Stroke Colors")
+                Section:
+                    visible << h_stroke.expanded
                     padding = 0
-                    Label:
-                        text = QApplication.translate("job", "Stroke Colors")
                     Form:
                         padding = 0
                         Looper:
