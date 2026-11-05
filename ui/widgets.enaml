@@ -1,0 +1,34 @@
+"""
+Distributed under the terms of the GPL v3 License.
+
+The full license is in the file LICENSE, distributed with this software.
+
+Shared panel widgets: a scroll area for the dock panels.
+"""
+from enaml.widgets.api import ScrollArea
+from enaml.qt.QtWidgets import QWidget
+
+
+enamldef PanelScroll(ScrollArea):
+    """ Scrolls a panel's content when it is taller than the dock item.
+
+    The viewport, the scrolled content (QScrollArea.setWidget turns its
+    autoFillBackground on) and the corner between the scroll bars are not
+    filled, so the dock item background (the dock style) shows through.
+
+    """
+    border = None
+    resist_height = 'ignore'
+    #: Long file names must not widen the dock
+    resist_width = 'ignore'
+    minimum_size = (0, 120)
+    horizontal_policy = 'as_needed'
+    vertical_policy = 'as_needed'
+    activated ::
+        widget = self.proxy.widget
+        widget.viewport().setAutoFillBackground(False)
+        if widget.widget() is not None:
+            widget.widget().setAutoFillBackground(False)
+        corner = QWidget()
+        corner.setAutoFillBackground(False)
+        widget.setCornerWidget(corner)
