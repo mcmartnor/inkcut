@@ -1538,6 +1538,9 @@ class DevicePlugin(Plugin):
             # Also observe any change to job.media and job.device
             view_items.extend([
                 dict(path=device.transform(r.map(t.map(job.material.path))),
+                     pen=QtGui.QPen(QtCore.Qt.NoPen), brush=plot.brush_media,
+                     fillLevel='enclosed', zValue=-1, skip_autorange=True),
+                dict(path=device.transform(r.map(t.map(job.material.path))),
                      pen=plot.pen_media,
                      skip_autorange=True),
                 dict(path=device.transform(r.map(t.map(job.material.padding_path))),

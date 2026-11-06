@@ -16,6 +16,9 @@ PEN_STYLES = {
     'device': Qt.DashLine,
 }
 
+#: The sheet (material) is white paper in both palettes
+MEDIA_FILL = '#ffffff'
+
 PEN_ROLES = ('media', 'media_padding', 'device', 'up', 'offset', 'down')
 
 
@@ -32,12 +35,12 @@ def preview_colors(dark, base=None):
         }
     return {
         'background': QColor('#1e1e1e') if base is None else base,
-        'media': (210, 210, 210),
-        'media_padding': (170, 170, 170),
+        'media': (128, 128, 128),
+        'media_padding': (128, 128, 128),
         'device': (235, 194, 194),
-        'up': {'hsv': (0.53, 1, 1.0, 0.6)},
-        'offset': {'hsv': (0.43, 1, 1.0, 0.6)},
-        'down': (220, 220, 220),
+        'up': {'hsv': (0.53, 1, 0.5, 0.5)},
+        'offset': {'hsv': (0.43, 1, 0.5, 0.5)},
+        'down': (128, 128, 128),
     }
 
 

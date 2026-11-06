@@ -13,7 +13,7 @@ import pyqtgraph as pg
 from atom.api import List, Instance, Enum, Bool, Range
 from enaml.qt import QtCore, QtGui
 from inkcut.core.api import Plugin, Model, unit_conversions, log
-from inkcut.core.theme import Theme, make_pens, PEN_ROLES
+from inkcut.core.theme import Theme, make_pens, PEN_ROLES, MEDIA_FILL
 from .plot_view import PainterPathPlotItem
 
 
@@ -40,6 +40,9 @@ class PreviewModel(Model):
     pen_down = Instance(QPen)
     pen_device = Instance(QPen)
 
+    #: The sheet (material), drawn under the lines
+    brush_media = Instance(QtGui.QBrush)
+
     #: (curve, role) of the plotted curves drawn with one of the pens above
     pen_roles = List()
 
@@ -60,6 +63,9 @@ class PreviewModel(Model):
 
     def _default_pen_down(self):
         return theme_pen('down')
+
+    def _default_brush_media(self):
+        return QtGui.QBrush(QtGui.QColor(MEDIA_FILL))
 
     def roles_of(self, curves, items):
         """ The (curve, role) pairs of curves made with one of the pens """

@@ -14,7 +14,8 @@ import sys
 import math
 import enaml
 from atom.api import Instance, Enum, List, Str, Int, Float, observe, Bool
-from enaml.qt.QtCore import QUrl
+from enaml.qt.QtCore import QUrl, Qt
+from enaml.qt.QtGui import QPen
 from inkcut.core.api import Plugin, unit_conversions, log
 
 from . import importers
@@ -472,6 +473,14 @@ class JobPlugin(Plugin):
             # Also observe any change to job.media and job.device
             view_items.extend(
                 [
+                    dict(
+                        path=transform(t.map(job.material.path)),
+                        pen=QPen(Qt.NoPen),
+                        brush=plot.brush_media,
+                        fillLevel='enclosed',
+                        zValue=-1,
+                        skip_autorange=([0, job.size[0]], [0, job.size[1]]),
+                    ),
                     dict(
                         path=transform(t.map(job.material.path)),
                         pen=plot.pen_media,

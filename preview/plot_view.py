@@ -100,6 +100,8 @@ class PainterPathPlotItem(PlotCurveItem):
             self.setFillLevel(kargs['fillLevel'])
         if 'brush' in kargs:
             self.setBrush(kargs['brush'])
+        if 'zValue' in kargs:
+            self.setZValue(kargs['zValue'])
         if 'antialias' in kargs:
             self.opts['antialias'] = kargs['antialias']
 
