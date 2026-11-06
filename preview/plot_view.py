@@ -135,6 +135,14 @@ class ProxyPlotView(ProxyControl):
 class PlotView(Control):
     hug_width = set_default('ignore')
     hug_height = set_default('ignore')
+    #: QGraphicsView.sizeHint() is the scene rect, which pyqtgraph keeps
+    #: equal to the view's own size (capped at 3/4 of the screen). With
+    #: the default resist 'strong' every layout from scratch after the
+    #: view has been shown would take that hint as the preview's minimum
+    #: and the window could never be made smaller again. The size is
+    #: bounded by minimum_size and the container, not by the hint.
+    resist_width = set_default('ignore')
+    resist_height = set_default('ignore')
     proxy = Typed(ProxyPlotView)
     data = d_(ContainerList())
     overlay = d_(Typed(object))
